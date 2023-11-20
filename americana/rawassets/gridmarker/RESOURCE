@@ -1,0 +1,7 @@
+image_stamp(
+  name = "gridmarker",
+  png = "gridmarker.png",
+  center_in_pixels = (16.0, 16.0),
+  facing = (0.0, 1.0),
+  width_in_meters = 1.0,
+)

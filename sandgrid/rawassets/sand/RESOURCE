@@ -1,0 +1,7 @@
+image_stamp(
+  name = "sand",
+  png = "sand.png",
+  center_in_pixels = (4.0, 4.0),
+  facing = (0.0, 1.0),
+  width_in_meters = 0.1,
+)

@@ -1,0 +1,7 @@
+image_stamp(
+    name = "playermarker",
+    png = "playermarker.png",
+    center_in_pixels = (128.0, 128.0),
+    facing = (0.0, 1.0),
+    width_in_meters = 0.5,
+)

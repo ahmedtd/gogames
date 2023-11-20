@@ -1,0 +1,7 @@
+image_stamp(
+    name = "boot",
+    png = "boot.png",
+    center_in_pixels = (32.0, 32.0),
+    facing = (0.0, 1.0),
+    width_in_meters = 0.4, # The whole image, not just the boot
+)
