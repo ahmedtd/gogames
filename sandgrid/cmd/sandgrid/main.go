@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"log"
 
-	"shellworld/americana/resource/loader"
+	"shellworld/resource/loader"
 	"shellworld/sandgrid/renderer"
 	"shellworld/sandgrid/world"
 

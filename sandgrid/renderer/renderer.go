@@ -5,10 +5,10 @@ import (
 	"log"
 	"time"
 
-	"shellworld/americana/resource/imagestamp"
-	"shellworld/americana/resource/loader"
-	"shellworld/americana/vmath/vec2"
+	"shellworld/resource/imagestamp"
+	"shellworld/resource/loader"
 	"shellworld/sandgrid/world"
+	"shellworld/vmath/vec2"
 
 	"github.com/hajimehoshi/ebiten/v2"
 )

@@ -10,13 +10,14 @@ import (
 	"flag"
 	"fmt"
 	"log"
-	"math/rand"
 	"time"
 
-	"shellworld/americana/resource/imagestamp"
-	"shellworld/americana/resource/loader"
-	"shellworld/americana/vmath/vec2"
+	"shellworld/americana/embeddedassets/medievaltilesheet"
 	"shellworld/americana/world/world"
+	"shellworld/resource/imagestamp"
+	"shellworld/resource/loader"
+	"shellworld/resource/tilesheet"
+	"shellworld/vmath/vec2"
 
 	"github.com/hajimehoshi/ebiten/v2"
 )
@@ -47,39 +48,6 @@ func do() error {
 			Angle:          0.0,
 			PixelsPerMeter: 50.0,
 		},
-		FlockingController: &world.FlockingController{},
-	}
-
-	theWorld.FlockingController.World = theWorld
-
-	elizabeth := &world.Human{
-		Name:       "Elizabeth",
-		Gender:     world.Female,
-		Location:   vec2.T{0.0, 0.0},
-		Facing:     vec2.T{1.0, 0.0},
-		Velocity:   vec2.T{0.0, 0.0},
-		RenderTint: imagestamp.Tint{1.0, 0.1, 0.1, 1.0},
-	}
-	elizabeth.JoinWorld(theWorld)
-
-	samuel := &world.Human{
-		Name:       "Samuel",
-		Gender:     world.Female,
-		Location:   vec2.T{5.0, 0.0},
-		Facing:     vec2.T{1.0, 0.0},
-		Velocity:   vec2.T{0.0, 0.0},
-		RenderTint: imagestamp.Tint{0.1, 1.0, 0.1, 1.0},
-	}
-	samuel.JoinWorld(theWorld)
-
-	for i := 0; i < 100; i++ {
-		rat := &world.Rat{
-			Location:   vec2.T{rand.Float64()*10.0 - 5.0, rand.Float64()*10.0 - 5.0},
-			Facing:     vec2.T{rand.Float64() - 0.5, rand.Float64() - 0.5}.Normalize(),
-			MaxSpeed:   rand.Float64()/5.0 + 1.0,
-			RenderTint: imagestamp.Tint{0.8, 0.8, 0.8, 1.0},
-		}
-		rat.JoinWorld(theWorld)
 	}
 
 	renderer, err := NewRenderer(resourceLoader, theWorld)
@@ -105,6 +73,8 @@ type Renderer struct {
 	playerImageStamp  *imagestamp.ImageStamp
 	bootImageStamp    *imagestamp.ImageStamp
 	gridDotImageStamp *imagestamp.ImageStamp
+
+	medievalTileSheet *tilesheet.T
 }
 
 var _ ebiten.Game = &Renderer{}
@@ -130,6 +100,11 @@ func NewRenderer(resourceLoader *loader.ResourceLoader, w *world.World) (*Render
 	r.gridDotImageStamp, err = r.resourceLoader.LoadImageStamp("//gridmarker:gridmarker")
 	if err != nil {
 		return nil, fmt.Errorf("while loading grid dot image stamp: %w", err)
+	}
+
+	r.medievalTileSheet, err = medievaltilesheet.Load()
+	if err != nil {
+		return nil, fmt.Errorf("while loading medieval tile sheet: %w", err)
 	}
 
 	return r, nil
@@ -162,18 +137,30 @@ func (r *Renderer) Draw(screen *ebiten.Image) {
 	// Render a grid
 	for x := -10; x <= 10; x++ {
 		for y := -10; y <= 10; y++ {
-			r.gridDotImageStamp.RenderOnWorld(screen, worldToScreen, vec2.T{float64(x), float64(y)}, vec2.T{1, 0}, imagestamp.Tint{0.1, 1.0, 0.1, 0.5})
+			r.medievalTileSheet.RenderAtWorldPosition(screen, int(medievaltilesheet.TileDirt1), worldToScreen, vec2.T{float64(x), float64(y)}, vec2.T{1.0, 0.0})
 		}
 	}
 
-	for _, v := range r.latestRenderState.HumanRenderStates {
-		r.playerImageStamp.RenderOnWorld(screen, worldToScreen, v.Location, v.Facing, v.RenderTint)
-		r.bootImageStamp.RenderOnWorld(screen, worldToScreen, v.LeftFootLocation, v.LeftFootFacing, imagestamp.Tint{1.0, 1.0, 1.0, 1.0})
-		r.bootImageStamp.RenderOnWorld(screen, worldToScreen, v.RightFootLocation, v.RightFootFacing, imagestamp.Tint{1.0, 1.0, 1.0, 1.0})
+	// Render a leafy tree at 1,0 and a conifer at 0,1
+	// r.medievalTileSheet.RenderAtWorldPosition(screen, int(medievaltilesheet.GrayRockSmall), worldToScreen, vec2.T{1.0, 0.0}, vec2.T{1.0, 0.0})
+	// r.medievalTileSheet.RenderAtWorldPosition(screen, int(medievaltilesheet.BrownRockSmall), worldToScreen, vec2.T{0.0, 1.0}, vec2.T{1.0, 0.0})
+
+	for _, v := range r.latestRenderState.AntRenderStates {
+		if !v.Live {
+			continue
+		}
+		r.medievalTileSheet.RenderAtWorldPosition(screen, int(medievaltilesheet.WomanBlue), worldToScreen, v.Location, v.Facing)
 	}
 
-	for _, v := range r.latestRenderState.RatRenderStates {
-		r.playerImageStamp.RenderOnWorld(screen, worldToScreen, v.Location, v.Facing, v.RenderTint)
+	for _, v := range r.latestRenderState.FoodRenderStates {
+		if !v.Live {
+			continue
+		}
+		r.medievalTileSheet.RenderAtWorldPosition(screen, int(medievaltilesheet.BrownRockSmall), worldToScreen, v.Location, v.Facing)
+	}
+
+	for _, v := range r.latestRenderState.ScentRenderStates {
+		r.playerImageStamp.RenderOnWorld(screen, worldToScreen, v.Location, vec2.T{1.0, 0.0}, imagestamp.Tint{1.0, 1.0, 1.0, 1.0})
 	}
 }
 

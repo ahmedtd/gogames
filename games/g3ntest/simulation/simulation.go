@@ -2,7 +2,7 @@ package simulation
 
 import (
 	"math"
-	"shellworld/americana/vmath/vec3"
+	"shellworld/vmath/vec3"
 	"time"
 )
 

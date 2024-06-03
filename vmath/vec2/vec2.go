@@ -33,3 +33,7 @@ func MulSV(s float64, a T) T {
 		s * a[1],
 	}
 }
+
+func Dot(a, b T) float64 {
+	return a[0]*b[0] + a[1]*b[1]
+}

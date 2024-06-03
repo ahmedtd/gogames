@@ -1,6 +1,6 @@
 package world
 
-import "shellworld/americana/vmath/vec2"
+import "shellworld/vmath/vec2"
 
 type Rectangle struct {
 	Min vec2.T

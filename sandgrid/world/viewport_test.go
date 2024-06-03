@@ -3,7 +3,7 @@ package world
 import (
 	"fmt"
 	"math"
-	"shellworld/americana/vmath/vec2"
+	"shellworld/vmath/vec2"
 	"testing"
 )
 

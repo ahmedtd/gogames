@@ -3,8 +3,8 @@ package mat33
 import (
 	"math"
 
-	"shellworld/americana/vmath/vec2"
-	"shellworld/americana/vmath/vec3"
+	"shellworld/vmath/vec2"
+	"shellworld/vmath/vec3"
 )
 
 type T [9]float64
