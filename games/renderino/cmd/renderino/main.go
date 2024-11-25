@@ -7,18 +7,23 @@ package main
 //    go run ./games/renderino/cmd/renderino
 
 import (
+	"bytes"
 	"flag"
 	"fmt"
+	"image/color"
 	"log"
 	"math"
 	"sync"
 	"time"
 
+	"shellworld/games/renderino/resources"
 	"shellworld/vmath/fmat33"
 	"shellworld/vmath/fvec3"
 
 	"github.com/barnex/fmath"
 	"github.com/hajimehoshi/ebiten/v2"
+	"github.com/hajimehoshi/ebiten/v2/text/v2"
+	"github.com/hajimehoshi/ebiten/v2/vector"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -50,10 +55,13 @@ type Renderer struct {
 
 	LatestRenderState *RenderState
 
+	// Draws per second calculation.  Ebiten's is noisy.
+	lastDrawStart time.Time
+
 	// If the framerate is too low, UpscaleFactor will be used to drop the
 	// amount of work the raytracer has to do.
-	UpscaleFactor           float32
-	LastUpscaleFactorAdjust time.Time
+	curUpscaleFactor        float64
+	upscaleTuningIntegrator float64
 
 	renderGroup *errgroup.Group
 
@@ -64,6 +72,9 @@ type Renderer struct {
 	bufLock sync.Mutex
 
 	RGBPowerBuf []RGBPower
+
+	uiFaceSource *text.GoTextFaceSource
+	uiNormalFace *text.GoTextFace
 }
 
 type RenderTile struct {
@@ -86,13 +97,23 @@ func NewRenderer() (*Renderer, error) {
 	renderGroup := &errgroup.Group{}
 	renderGroup.SetLimit(1)
 
+	uiFaceSource, err := text.NewGoTextFaceSource(bytes.NewReader(resources.DepartureMonoOTF))
+	if err != nil {
+		return nil, fmt.Errorf("while loading Departure Mono font: %w", err)
+	}
+
 	r := &Renderer{
-		LastUpscaleFactorAdjust: time.Now(),
-		UpscaleFactor:           1.0,
+		curUpscaleFactor: 1.0,
 
 		renderGroup: renderGroup,
 
 		TileSize: 128,
+
+		uiFaceSource: uiFaceSource,
+		uiNormalFace: &text.GoTextFace{
+			Source: uiFaceSource,
+			Size:   24,
+		},
 
 		LatestRenderState: &RenderState{
 			Camera: camera,
@@ -133,6 +154,36 @@ func (r *Renderer) Update() error {
 }
 
 func (r *Renderer) Draw(screen *ebiten.Image) {
+	drawStart := time.Now()
+	drawDelta := drawStart.Sub(r.lastDrawStart)
+	if r.lastDrawStart.IsZero() {
+		drawDelta = time.Second / 60
+	}
+
+	// Compute upscaling factor based on how long it has been since the last
+	// draw call.  Adjusting r.UpscaleFactor won't actually take effect until
+	// the next call to r.Layout().
+	//
+	// Note that because ebiten is targeting 60FPS, the error should only go
+	// slightly negative.  Without that logic, we would need additional logic
+	// because the controller would try to lower the upscaling factor below 1 to
+	// do more work per frame.
+	drawDeltaError := drawDelta.Seconds() - (1.0 / 60.0)
+	r.upscaleTuningIntegrator = 0.9*r.upscaleTuningIntegrator + drawDeltaError
+	newUpscaleFactor := 1.0 + 10.0*drawDeltaError + 1.0*r.upscaleTuningIntegrator
+	if newUpscaleFactor < 1.0 {
+		// Dynamic upscaling is not allowed to try to introduce more work to
+		// increase the frame time.
+		newUpscaleFactor = 1.0
+	}
+	if math.Abs(newUpscaleFactor-r.curUpscaleFactor) > 0.1 || newUpscaleFactor == 1.0 {
+		// If upscaler control is proposing a real change, or targeting full
+		// resolution, apply it.
+		r.curUpscaleFactor = newUpscaleFactor
+	}
+
+	// log.Printf("drawDelta=%v curUpscaleFactor=%f", drawDelta, r.curUpscaleFactor)
+
 	sx := screen.Bounds().Dx()
 	sy := screen.Bounds().Dy()
 
@@ -247,24 +298,22 @@ func (r *Renderer) Draw(screen *ebiten.Image) {
 	}
 
 	screen.WritePixels(r.Buf)
+
+	// Draw info text
+	const x, y = 20, 20
+	infoText := fmt.Sprintf("fps=%f\ncurUpscaleFactor=%f\nnewUpscaleFactor=%f", 1.0/drawDelta.Seconds(), r.curUpscaleFactor, newUpscaleFactor)
+	w, h := text.Measure(infoText, r.uiNormalFace, r.uiNormalFace.Size*1.5)
+	vector.DrawFilledRect(screen, x, y, float32(w), float32(h), color.RGBA{0x80, 0x80, 0x80, 0xff}, false)
+	op := &text.DrawOptions{}
+	op.GeoM.Translate(x, y)
+	op.LineSpacing = r.uiNormalFace.Size * 1.5
+	text.Draw(screen, infoText, r.uiNormalFace, op)
+
+	r.lastDrawStart = drawStart
 }
 
 func (r *Renderer) Layout(outsideWidth, outsideHeight int) (int, int) {
-	if time.Since(r.LastUpscaleFactorAdjust) > 1*time.Second {
-		if ebiten.ActualTPS() < 59 {
-			r.UpscaleFactor += 0.1
-			r.LastUpscaleFactorAdjust = time.Now()
-			log.Printf("upscale=%f", r.UpscaleFactor)
-		} else {
-			if r.UpscaleFactor > 1 {
-				r.UpscaleFactor -= 0.1
-				r.LastUpscaleFactorAdjust = time.Now()
-				log.Printf("upscale=%f", r.UpscaleFactor)
-			}
-		}
-	}
-
-	return int(float32(outsideWidth) / r.UpscaleFactor), int(float32(outsideHeight) / r.UpscaleFactor)
+	return int(float64(outsideWidth) / r.curUpscaleFactor), int(float64(outsideHeight) / r.curUpscaleFactor)
 }
 
 type RenderState struct {
