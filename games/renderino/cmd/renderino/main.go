@@ -183,6 +183,7 @@ func (r *Renderer) Draw(screen *ebiten.Image) {
 				}
 			}
 
+			// Copy the tile back to the main buf under a lock.
 			r.bufLock.Lock()
 			defer r.bufLock.Unlock()
 			for px := r.tiles[i].SrcX; px < r.tiles[i].LimX; px++ {
