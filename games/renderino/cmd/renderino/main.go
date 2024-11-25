@@ -68,8 +68,9 @@ type Renderer struct {
 	TileSize int
 	tiles    []RenderTile
 
-	Buf     []byte
-	bufLock sync.Mutex
+	renderImage *ebiten.Image
+	buf         []byte
+	bufLock     sync.Mutex
 
 	RGBPowerBuf []RGBPower
 
@@ -161,7 +162,7 @@ func (r *Renderer) Draw(screen *ebiten.Image) {
 	}
 
 	// Compute upscaling factor based on how long it has been since the last
-	// draw call.  Adjusting r.UpscaleFactor won't actually take effect until
+	// draw call.  Adjusting r.curUpscaleFactor won't actually take effect until
 	// the next call to r.Layout().
 	//
 	// Note that because ebiten is targeting 60FPS, the error should only go
@@ -169,8 +170,8 @@ func (r *Renderer) Draw(screen *ebiten.Image) {
 	// because the controller would try to lower the upscaling factor below 1 to
 	// do more work per frame.
 	drawDeltaError := drawDelta.Seconds() - (1.0 / 60.0)
-	r.upscaleTuningIntegrator = 0.9*r.upscaleTuningIntegrator + drawDeltaError
-	newUpscaleFactor := 1.0 + 10.0*drawDeltaError + 1.0*r.upscaleTuningIntegrator
+	r.upscaleTuningIntegrator = 0.99*r.upscaleTuningIntegrator + drawDeltaError
+	newUpscaleFactor := 1.0 + 10.0*drawDeltaError + 0.1*r.upscaleTuningIntegrator
 	if newUpscaleFactor < 1.0 {
 		// Dynamic upscaling is not allowed to try to introduce more work to
 		// increase the frame time.
@@ -182,25 +183,25 @@ func (r *Renderer) Draw(screen *ebiten.Image) {
 		r.curUpscaleFactor = newUpscaleFactor
 	}
 
-	// log.Printf("drawDelta=%v curUpscaleFactor=%f", drawDelta, r.curUpscaleFactor)
+	// Compute desired size of the render target according to upscaling factor.
+	rx := int(float64(screen.Bounds().Dx()) / r.curUpscaleFactor)
+	ry := int(float64(screen.Bounds().Dy()) / r.curUpscaleFactor)
 
-	sx := screen.Bounds().Dx()
-	sy := screen.Bounds().Dy()
-
-	if len(r.Buf) != sx*sy*4 {
-		r.Buf = make([]byte, sx*sy*4)
-		r.RGBPowerBuf = make([]RGBPower, sx*sy)
+	if r.renderImage == nil || r.renderImage.Bounds().Dx() != rx || r.renderImage.Bounds().Dy() != ry {
+		r.renderImage = ebiten.NewImage(rx, ry)
+		r.buf = make([]byte, rx*ry*4)
+		r.RGBPowerBuf = make([]RGBPower, rx*ry)
 
 		r.tiles = []RenderTile{}
-		for tileSrcX := 0; tileSrcX < sx; tileSrcX += r.TileSize {
-			for tileSrcY := 0; tileSrcY < sy; tileSrcY += r.TileSize {
+		for tileSrcX := 0; tileSrcX < rx; tileSrcX += r.TileSize {
+			for tileSrcY := 0; tileSrcY < ry; tileSrcY += r.TileSize {
 				tileSizeX := r.TileSize
-				if tileSrcX+r.TileSize > sx {
-					tileSizeX = sx - tileSrcX
+				if tileSrcX+r.TileSize > rx {
+					tileSizeX = rx - tileSrcX
 				}
 				tileSizeY := r.TileSize
-				if tileSrcY+r.TileSize > sy {
-					tileSizeY = sy - tileSrcY
+				if tileSrcY+r.TileSize > ry {
+					tileSizeY = ry - tileSrcY
 				}
 				r.tiles = append(r.tiles, RenderTile{
 					SrcX:        tileSrcX,
@@ -218,7 +219,7 @@ func (r *Renderer) Draw(screen *ebiten.Image) {
 	// Horizontal FOV is 80 degrees, with vertical FOV adjusted to match.
 	r.LatestRenderState.Camera.Aperture[0] = 1
 	r.LatestRenderState.Camera.Aperture[1] = fmath.Sin(40.0 / 180.0 * 2.0 * fmath.Pi)
-	r.LatestRenderState.Camera.Aperture[2] = r.LatestRenderState.Camera.Aperture[1] / float32(sx) * float32(sy)
+	r.LatestRenderState.Camera.Aperture[2] = r.LatestRenderState.Camera.Aperture[1] / float32(rx) * float32(ry)
 
 	// Render each tile.
 	for i := 0; i < len(r.tiles); i++ {
@@ -230,7 +231,7 @@ func (r *Renderer) Draw(screen *ebiten.Image) {
 				for py := r.tiles[i].SrcY; py < r.tiles[i].LimY; py++ {
 					tx := px - r.tiles[i].SrcX
 					ty := py - r.tiles[i].SrcY
-					r.tiles[i].RGBPowerBuf[ty*tileSizeX+tx] = r.LatestRenderState.RenderPixel(px, py, sx, sy)
+					r.tiles[i].RGBPowerBuf[ty*tileSizeX+tx] = r.LatestRenderState.RenderPixel(px, py, rx, ry)
 				}
 			}
 
@@ -241,7 +242,7 @@ func (r *Renderer) Draw(screen *ebiten.Image) {
 				for py := r.tiles[i].SrcY; py < r.tiles[i].LimY; py++ {
 					tx := px - r.tiles[i].SrcX
 					ty := py - r.tiles[i].SrcY
-					r.RGBPowerBuf[py*sx+px] = r.tiles[i].RGBPowerBuf[ty*tileSizeX+tx]
+					r.RGBPowerBuf[py*rx+px] = r.tiles[i].RGBPowerBuf[ty*tileSizeX+tx]
 				}
 			}
 
@@ -255,9 +256,9 @@ func (r *Renderer) Draw(screen *ebiten.Image) {
 	// Simple automatic exposure control.  Divide all pixels by the maximum RGB
 	// power if it's greater than 1.0.
 	maxMag := float32(0)
-	for px := 0; px < sx; px++ {
-		for py := 0; py < sy; py++ {
-			thisMag := fmath.Sqrt(r.RGBPowerBuf[py*sx+px][0]*r.RGBPowerBuf[py*sx+px][0] + r.RGBPowerBuf[py*sx+px][1]*r.RGBPowerBuf[py*sx+px][1] + r.RGBPowerBuf[py*sx+px][2]*r.RGBPowerBuf[py*sx+px][2])
+	for px := 0; px < rx; px++ {
+		for py := 0; py < ry; py++ {
+			thisMag := fmath.Sqrt(r.RGBPowerBuf[py*rx+px][0]*r.RGBPowerBuf[py*rx+px][0] + r.RGBPowerBuf[py*rx+px][1]*r.RGBPowerBuf[py*rx+px][1] + r.RGBPowerBuf[py*rx+px][2]*r.RGBPowerBuf[py*rx+px][2])
 			if thisMag > maxMag {
 				maxMag = thisMag
 			}
@@ -268,36 +269,42 @@ func (r *Renderer) Draw(screen *ebiten.Image) {
 	}
 	exposureDivisor := 1 / maxMag
 
-	for px := 0; px < sx; px++ {
-		for py := 0; py < sy; py++ {
-			rgbPow := r.RGBPowerBuf[py*sx+px]
+	for px := 0; px < rx; px++ {
+		for py := 0; py < ry; py++ {
+			rgbPow := r.RGBPowerBuf[py*rx+px]
 			rgbPow[0] *= exposureDivisor
 			rgbPow[1] *= exposureDivisor
 			rgbPow[2] *= exposureDivisor
 
 			if rgbPow[0] == 1.0 {
-				r.Buf[py*sx*4+px*4+0] = 255
+				r.buf[py*rx*4+px*4+0] = 255
 			} else {
-				r.Buf[py*sx*4+px*4+0] = byte(fmath.Floor(rgbPow[0] * 256.0))
+				r.buf[py*rx*4+px*4+0] = byte(fmath.Floor(rgbPow[0] * 256.0))
 			}
 
 			if rgbPow[1] == 1.0 {
-				r.Buf[py*sx*4+px*4+1] = 255
+				r.buf[py*rx*4+px*4+1] = 255
 			} else {
-				r.Buf[py*sx*4+px*4+1] = byte(fmath.Floor(rgbPow[1] * 256.0))
+				r.buf[py*rx*4+px*4+1] = byte(fmath.Floor(rgbPow[1] * 256.0))
 			}
 
 			if rgbPow[2] == 1.0 {
-				r.Buf[py*sx*4+px*4+2] = 255
+				r.buf[py*rx*4+px*4+2] = 255
 			} else {
-				r.Buf[py*sx*4+px*4+2] = byte(fmath.Floor(rgbPow[2] * 256.0))
+				r.buf[py*rx*4+px*4+2] = byte(fmath.Floor(rgbPow[2] * 256.0))
 			}
 
-			r.Buf[py*sx*4+px*4+3] = 255
+			r.buf[py*rx*4+px*4+3] = 255
 		}
 	}
 
-	screen.WritePixels(r.Buf)
+	r.renderImage.WritePixels(r.buf)
+
+	drawRenderImageOptions := &ebiten.DrawImageOptions{
+		Filter: ebiten.FilterLinear,
+	}
+	drawRenderImageOptions.GeoM.Scale(r.curUpscaleFactor, r.curUpscaleFactor)
+	screen.DrawImage(r.renderImage, drawRenderImageOptions)
 
 	// Draw info text
 	const x, y = 20, 20
@@ -313,7 +320,7 @@ func (r *Renderer) Draw(screen *ebiten.Image) {
 }
 
 func (r *Renderer) Layout(outsideWidth, outsideHeight int) (int, int) {
-	return int(float64(outsideWidth) / r.curUpscaleFactor), int(float64(outsideHeight) / r.curUpscaleFactor)
+	return outsideWidth, outsideHeight
 }
 
 type RenderState struct {
