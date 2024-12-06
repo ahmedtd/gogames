@@ -13,6 +13,8 @@ import (
 	"image/color"
 	"log"
 	"math"
+	"net/http"
+	_ "net/http/pprof"
 	"sync"
 	"time"
 
@@ -36,6 +38,10 @@ func main() {
 }
 
 func do() error {
+	go func() {
+		log.Println(http.ListenAndServe("localhost:8080", nil))
+	}()
+
 	renderer, err := NewRenderer()
 	if err != nil {
 		return fmt.Errorf("while creating renderer: %w", err)
@@ -88,19 +94,55 @@ var _ ebiten.Game = &Renderer{}
 
 func NewRenderer() (*Renderer, error) {
 	camera := &PinholeCamera{
-		Center:          fvec3.T{-10, 0, 0},
+		Center:          fvec3.T{-10, 0, 10},
 		ApertureToWorld: fmat33.T{1, 0, 0, 0, 1, 0, 0, 0, 1},
 		Aperture:        fvec3.T{0.02, 0.018, 0.012},
 	}
-	camera.SetEye(fvec3.T{1.0, 0.0, 0.0})
 	camera.SetUp(fvec3.T{0.0, 0.0, 1.0})
+	camera.SetEye(fvec3.T{1.0, 0.1, -0.4})
 
 	renderGroup := &errgroup.Group{}
-	renderGroup.SetLimit(1)
+	renderGroup.SetLimit(3)
 
 	uiFaceSource, err := text.NewGoTextFaceSource(bytes.NewReader(resources.DepartureMonoOTF))
 	if err != nil {
 		return nil, fmt.Errorf("while loading Departure Mono font: %w", err)
+	}
+
+	staticScene := &RenderState{
+		Camera: camera,
+
+		AmbientLights: []AmbientLight{
+			{Power: RGBPower{0.2, 0.2, 0.2}},
+		},
+		DirectionalLights: []DirectionalLight{
+			{
+				DirectionToSource: fvec3.Normalize(fvec3.T{1, 1, 1}),
+				Power:             RGBPower{1.0, 1.0, 1.0},
+			},
+		},
+		PointLights: []PointLight{
+			{
+				Center: fvec3.T{5, 0, 0},
+				Power:  RGBPower{1.0, 0.0, 0.0},
+			},
+		},
+	}
+
+	// staticScene.Spheres = []Sphere{
+	// 	{
+	// 		Center: fvec3.T{10.0, 0.0, 0.0},
+	// 		Radius: 8.0,
+	// 	},
+	// }
+
+	for i := 0; i < 1; i++ {
+		for j := 0; j < 1; j++ {
+			staticScene.AABBs = append(staticScene.AABBs, AABB{
+				Lo: fvec3.T{10 + 10*float32(i) - 4, 0 + 10*float32(j) - 4, -4},
+				Hi: fvec3.T{10 + 10*float32(i) + 4, 0 + 10*float32(j) + 4, 4},
+			})
+		}
 	}
 
 	r := &Renderer{
@@ -116,29 +158,9 @@ func NewRenderer() (*Renderer, error) {
 			Size:   24,
 		},
 
-		LatestRenderState: &RenderState{
-			Camera: camera,
-
-			Spheres: []Sphere{
-				{Center: fvec3.T{10.0, 0.0, 0.0}},
-			},
-			AmbientLights: []AmbientLight{
-				{Power: RGBPower{0.2, 0.2, 0.2}},
-			},
-			DirectionalLights: []DirectionalLight{
-				{
-					DirectionToSource: fvec3.T{0, 0, 1},
-					Power:             RGBPower{1.0, 1.0, 1.0},
-				},
-			},
-			PointLights: []PointLight{
-				{
-					Center: fvec3.T{5, 0, 0},
-					Power:  RGBPower{1.0, 0.0, 0.0},
-				},
-			},
-		},
+		LatestRenderState: staticScene,
 	}
+
 	return r, nil
 }
 
@@ -171,13 +193,13 @@ func (r *Renderer) Draw(screen *ebiten.Image) {
 	// do more work per frame.
 	drawDeltaError := drawDelta.Seconds() - (1.0 / 60.0)
 	r.upscaleTuningIntegrator = 0.99*r.upscaleTuningIntegrator + drawDeltaError
-	newUpscaleFactor := 1.0 + 10.0*drawDeltaError + 0.1*r.upscaleTuningIntegrator
+	newUpscaleFactor := 1.0 + 0.1*drawDeltaError + 8.0*r.upscaleTuningIntegrator
 	if newUpscaleFactor < 1.0 {
 		// Dynamic upscaling is not allowed to try to introduce more work to
 		// increase the frame time.
 		newUpscaleFactor = 1.0
 	}
-	if math.Abs(newUpscaleFactor-r.curUpscaleFactor) > 0.1 || newUpscaleFactor == 1.0 {
+	if math.Abs(newUpscaleFactor-r.curUpscaleFactor) > 0.5 || newUpscaleFactor == 1.0 {
 		// If upscaler control is proposing a real change, or targeting full
 		// resolution, apply it.
 		r.curUpscaleFactor = newUpscaleFactor
@@ -329,6 +351,7 @@ type RenderState struct {
 	MaxDepth int
 
 	Spheres           []Sphere
+	AABBs             []AABB
 	AmbientLights     []AmbientLight
 	DirectionalLights []DirectionalLight
 	PointLights       []PointLight
@@ -343,6 +366,13 @@ func (r *RenderState) RenderPixel(px, py, wx, wy int) RGBPower {
 	}
 	for i := range r.Spheres {
 		if contact := r.Spheres[i].RayContact(ray, 0.0, minContact.T); contact.Mode != ContactModeMiss {
+			if contact.T > 0.0 && contact.T < minContact.T {
+				minContact = contact
+			}
+		}
+	}
+	for i := range r.AABBs {
+		if contact := r.AABBs[i].RayContact(ray, 0.0, minContact.T); contact.Mode != ContactModeMiss {
 			if contact.T > 0.0 && contact.T < minContact.T {
 				minContact = contact
 			}
@@ -503,20 +533,24 @@ type Contact struct {
 
 type Sphere struct {
 	Center fvec3.T
+	Radius float32
 }
 
 func (s *Sphere) RayContact(ray Ray, queryLo, queryHi float32) Contact {
-	b := fvec3.IProd(ray.Slope, ray.Point)
-	c := fvec3.IProd(ray.Point, ray.Point) - 1.0
+	a := ray.Slope[0]*ray.Slope[0] + ray.Slope[1]*ray.Slope[1] + ray.Slope[2]*ray.Slope[2]
+	offset := fvec3.SubVV(ray.Point, s.Center)
+	b := 2 * (offset[0]*ray.Slope[0] + offset[1]*ray.Slope[1] + offset[2]*ray.Slope[2])
+	c := offset[0]*offset[0] + offset[1]*offset[1] + offset[2]*offset[2] - s.Radius*s.Radius
 
-	if b*b-c < 0 {
+	discriminant := b*b - 4*a*c
+	if discriminant < 0 {
 		return Contact{
 			Mode: ContactModeMiss,
 		}
 	}
 
-	tMin := -b - fmath.Sqrt(b*b-c)
-	tMax := -b + fmath.Sqrt(b*b-c)
+	tMin := -b - fmath.Sqrt(discriminant)/(2*a)
+	tMax := -b + fmath.Sqrt(discriminant)/(2*a)
 
 	if queryLo <= tMin && tMin < queryHi {
 		p := ray.Eval(tMin)
@@ -549,6 +583,130 @@ func (s *Sphere) RayContact(ray Ray, queryLo, queryHi float32) Contact {
 			Mtl2: p[2],
 		}
 	}
+}
+
+type AABB struct {
+	Lo fvec3.T
+	Hi fvec3.T
+}
+
+func (b *AABB) RayContact(ray Ray, queryLo, queryHi float32) Contact {
+	tXLo := (b.Lo[0] - ray.Point[0]) / ray.Slope[0]
+	tXHi := (b.Hi[0] - ray.Point[0]) / ray.Slope[0]
+	tYLo := (b.Lo[1] - ray.Point[1]) / ray.Slope[1]
+	tYHi := (b.Hi[1] - ray.Point[1]) / ray.Slope[1]
+	tZLo := (b.Lo[2] - ray.Point[2]) / ray.Slope[2]
+	tZHi := (b.Hi[2] - ray.Point[2]) / ray.Slope[2]
+
+	minValidContact := Contact{}
+
+	// Is our contact with the X-Low plane actually on the box?
+	pXLoX := b.Lo[0]
+	pXLoY := ray.Point[1] + ray.Slope[1]*tXLo
+	pXLoZ := ray.Point[2] + ray.Slope[2]*tXLo
+	if onBox(pXLoX, pXLoY, pXLoZ, b.Lo[0], b.Hi[0], b.Lo[1], b.Hi[1], b.Lo[2], b.Hi[2]) {
+		if tXLo < minValidContact.T || minValidContact.Mode == ContactModeMiss {
+			minValidContact.T = tXLo
+			if ray.Slope[0] >= 0 {
+				minValidContact.Mode = ContactModeEnter
+				minValidContact.N = fvec3.T{-1, 0, 0}
+			} else {
+				minValidContact.Mode = ContactModeExit
+				minValidContact.N = fvec3.T{1, 0, 0}
+			}
+		}
+	}
+
+	// Is our contact with the X-High plane actually on the box?
+	pXHiX := b.Hi[0]
+	pXHiY := ray.Point[1] + ray.Slope[1]*tXHi
+	pXHiZ := ray.Point[2] + ray.Slope[2]*tXHi
+	if onBox(pXHiX, pXHiY, pXHiZ, b.Lo[0], b.Hi[0], b.Lo[1], b.Hi[1], b.Lo[2], b.Hi[2]) {
+		if tXHi < minValidContact.T || minValidContact.Mode == ContactModeMiss {
+			minValidContact.T = tXHi
+			if ray.Slope[0] < 0 {
+				minValidContact.Mode = ContactModeEnter
+				minValidContact.N = fvec3.T{1, 0, 0}
+			} else {
+				minValidContact.Mode = ContactModeExit
+				minValidContact.N = fvec3.T{-1, 0, 0}
+			}
+		}
+	}
+
+	// Is our contact with the Y-Low plane actually on the box?
+	pYLoX := ray.Point[0] + ray.Slope[0]*tYLo
+	pYLoY := b.Lo[1]
+	pYLoZ := ray.Point[2] + ray.Slope[2]*tYLo
+	if onBox(pYLoX, pYLoY, pYLoZ, b.Lo[0], b.Hi[0], b.Lo[1], b.Hi[1], b.Lo[2], b.Hi[2]) {
+		if tYLo < minValidContact.T || minValidContact.Mode == ContactModeMiss {
+			minValidContact.T = tYLo
+			if ray.Slope[1] >= 0 {
+				minValidContact.Mode = ContactModeEnter
+				minValidContact.N = fvec3.T{0, -1, 0}
+			} else {
+				minValidContact.Mode = ContactModeExit
+				minValidContact.N = fvec3.T{0, 1, 0}
+			}
+		}
+	}
+
+	// Is our contact with the Y-High plane actually on the box?
+	pYHiX := ray.Point[0] + ray.Slope[0]*tYHi
+	pYHiY := b.Hi[1]
+	pYHiZ := ray.Point[2] + ray.Slope[2]*tYHi
+	if onBox(pYHiX, pYHiY, pYHiZ, b.Lo[0], b.Hi[0], b.Lo[1], b.Hi[1], b.Lo[2], b.Hi[2]) {
+		if tYHi < minValidContact.T || minValidContact.Mode == ContactModeMiss {
+			minValidContact.T = tYHi
+			if ray.Slope[1] < 0 {
+				minValidContact.Mode = ContactModeEnter
+				minValidContact.N = fvec3.T{0, 1, 0}
+			} else {
+				minValidContact.Mode = ContactModeExit
+				minValidContact.N = fvec3.T{0, -1, 0}
+			}
+		}
+	}
+
+	// Is our contact with the Z-Low plane actually on the box?
+	pZLoX := ray.Point[0] + ray.Slope[0]*tZLo
+	pZLoY := ray.Point[1] + ray.Slope[1]*tZLo
+	pZLoZ := b.Lo[2]
+	if onBox(pZLoX, pZLoY, pZLoZ, b.Lo[0], b.Hi[0], b.Lo[1], b.Hi[1], b.Lo[2], b.Hi[2]) {
+		if tZLo < minValidContact.T || minValidContact.Mode == ContactModeMiss {
+			minValidContact.T = tZLo
+			if ray.Slope[2] >= 0 {
+				minValidContact.Mode = ContactModeEnter
+				minValidContact.N = fvec3.T{0, 0, -1}
+			} else {
+				minValidContact.Mode = ContactModeExit
+				minValidContact.N = fvec3.T{0, 0, 1}
+			}
+		}
+	}
+
+	// Is our contact with the Z-High plane actually on the box?
+	pZHiX := ray.Point[0] + ray.Slope[0]*tZHi
+	pZHiY := ray.Point[1] + ray.Slope[1]*tZHi
+	pZHiZ := b.Hi[2]
+	if onBox(pZHiX, pZHiY, pZHiZ, b.Lo[0], b.Hi[0], b.Lo[1], b.Hi[1], b.Lo[2], b.Hi[2]) {
+		if tZHi < minValidContact.T || minValidContact.Mode == ContactModeMiss {
+			minValidContact.T = tZHi
+			if ray.Slope[2] < 0 {
+				minValidContact.Mode = ContactModeEnter
+				minValidContact.N = fvec3.T{0, 0, 1}
+			} else {
+				minValidContact.Mode = ContactModeExit
+				minValidContact.N = fvec3.T{0, 0, -1}
+			}
+		}
+	}
+
+	return minValidContact
+}
+
+func onBox(px, py, pz, xlo, xhi, ylo, yhi, zlo, zhi float32) bool {
+	return xlo <= px && px <= xhi && ylo <= py && py <= yhi && zlo <= pz && pz <= zhi
 }
 
 type AmbientLight struct {
