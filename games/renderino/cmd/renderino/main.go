@@ -13,8 +13,10 @@ import (
 	"image/color"
 	"log"
 	"math"
+	"math/rand"
 	"net/http"
 	_ "net/http/pprof"
+	"slices"
 	"sync"
 	"time"
 
@@ -23,6 +25,7 @@ import (
 	"shellworld/vmath/fvec3"
 
 	"github.com/barnex/fmath"
+	"github.com/chewxy/math32"
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/text/v2"
 	"github.com/hajimehoshi/ebiten/v2/vector"
@@ -598,6 +601,10 @@ func (b *AABB) RayContact(ray Ray, queryLo, queryHi float32) Contact {
 	tZLo := (b.Lo[2] - ray.Point[2]) / ray.Slope[2]
 	tZHi := (b.Hi[2] - ray.Point[2]) / ray.Slope[2]
 
+	centerX := (b.Lo[0] + b.Hi[0]) / 2
+	centerY := (b.Lo[1] + b.Hi[1]) / 2
+	centerZ := (b.Lo[2] + b.Hi[2]) / 2
+
 	minValidContact := Contact{}
 
 	// Is our contact with the X-Low plane actually on the box?
@@ -610,6 +617,7 @@ func (b *AABB) RayContact(ray Ray, queryLo, queryHi float32) Contact {
 			if ray.Slope[0] >= 0 {
 				minValidContact.Mode = ContactModeEnter
 				minValidContact.N = fvec3.T{-1, 0, 0}
+
 			} else {
 				minValidContact.Mode = ContactModeExit
 				minValidContact.N = fvec3.T{1, 0, 0}
@@ -702,6 +710,10 @@ func (b *AABB) RayContact(ray Ray, queryLo, queryHi float32) Contact {
 		}
 	}
 
+	minValidContact.Mtl0 = minValidContact.P[0] - centerX
+	minValidContact.Mtl1 = minValidContact.P[1] - centerY
+	minValidContact.Mtl2 = minValidContact.P[2] - centerZ
+
 	return minValidContact
 }
 
@@ -721,4 +733,177 @@ type DirectionalLight struct {
 type PointLight struct {
 	Center fvec3.T
 	Power  RGBPower
+}
+
+type BVHTree struct {
+	Root *BVHNode
+}
+
+type BVHNode struct {
+	Bounds BVHBox
+
+	SceneElementRef int
+
+	Axis    int
+	LoChild *BVHNode
+	HiChild *BVHNode
+}
+
+type BVHElement struct {
+	Bounds          BVHBox
+	SceneElementRef int
+}
+
+func MakeBVHTree(elements []BVHElement) *BVHTree {
+	root := &BVHNode{}
+
+	if len(elements) == 0 {
+		return &BVHTree{
+			Root: root,
+		}
+	}
+
+	// Compute bounding box for this node
+	bounds := elements[0].Bounds
+	for _, elt := range elements {
+		bounds.Lo[0] = min(bounds.Lo[0], elt.Bounds.Lo[0])
+		bounds.Lo[1] = min(bounds.Lo[1], elt.Bounds.Lo[1])
+		bounds.Lo[2] = min(bounds.Lo[2], elt.Bounds.Lo[2])
+
+		bounds.Hi[0] = max(bounds.Hi[0], elt.Bounds.Hi[0])
+		bounds.Hi[1] = max(bounds.Hi[1], elt.Bounds.Hi[1])
+		bounds.Hi[2] = max(bounds.Hi[2], elt.Bounds.Hi[2])
+	}
+	root.Bounds = bounds
+
+	// Split axis starts on 0 axis.
+	root.Axis = 0
+
+	// Recursively split elements into hi and low children of the node.
+	assembleBVHTree(root, elements)
+
+	return &BVHTree{
+		Root: root,
+	}
+}
+
+func assembleBVHTree(root *BVHNode, elements []BVHElement) {
+	if len(elements) < 1 {
+		panic("precondition failure in assembleBVHTree")
+	}
+
+	if len(elements) == 1 {
+		// Base case.  Make root a concrete node that holds only this elements.
+		root.Bounds = elements[0].Bounds
+		root.SceneElementRef = elements[0].SceneElementRef
+	}
+
+	// Recursive case.  Pick a reasonable split and divide elements into a high
+	// and low child of the current node.
+
+	// Sort all elements according to the split axis.
+	slices.SortFunc[[]BVHElement, BVHElement](elements, func(a, b BVHElement) int {
+		diff := a.Bounds.Lo[root.Axis] - b.Bounds.Lo[root.Axis]
+		switch {
+		case diff < 0:
+			return -1
+		case diff == 0:
+			return 0
+		default:
+			return 1
+		}
+	})
+
+	// Evaluate three random indices for use as the split candidate
+	bestSurfaceArea := math32.MaxFloat32()
+	bestSplitIndex := -1
+	for i := 0; i < 3; i++ {
+		splitIndex := rand.Intn(len(elements))
+
+	}
+
+	// Compute bounding box for this node
+	bounds := elements[0].Bounds
+	for _, elt := range elements {
+		bounds.Lo[0] = min(bounds.Lo[0], elt.Bounds.Lo[0])
+		bounds.Lo[1] = min(bounds.Lo[1], elt.Bounds.Lo[1])
+		bounds.Lo[2] = min(bounds.Lo[2], elt.Bounds.Lo[2])
+
+		bounds.Hi[0] = max(bounds.Hi[0], elt.Bounds.Hi[0])
+		bounds.Hi[1] = max(bounds.Hi[1], elt.Bounds.Hi[1])
+		bounds.Hi[2] = max(bounds.Hi[2], elt.Bounds.Hi[2])
+	}
+
+	root.Bounds = bounds
+
+}
+
+// RayTest fires a ray through the BVH tree, invoking checkSceneElement with the
+// index of any scene element that could be hit.
+func (bvh *BVHTree) RayTest(ray Ray, queryLo, queryHi float32, checkSceneElement func(i int) bool) {
+
+}
+
+type BVHBox struct {
+	Lo fvec3.T
+	Hi fvec3.T
+}
+
+func (b *BVHBox) RayTest(ray Ray, queryLo, queryHi float32) bool {
+	tXLo := (b.Lo[0] - ray.Point[0]) / ray.Slope[0]
+	tXHi := (b.Hi[0] - ray.Point[0]) / ray.Slope[0]
+	tYLo := (b.Lo[1] - ray.Point[1]) / ray.Slope[1]
+	tYHi := (b.Hi[1] - ray.Point[1]) / ray.Slope[1]
+	tZLo := (b.Lo[2] - ray.Point[2]) / ray.Slope[2]
+	tZHi := (b.Hi[2] - ray.Point[2]) / ray.Slope[2]
+
+	// Is our contact with the X-Low plane actually on the box?
+	pXLoX := b.Lo[0]
+	pXLoY := ray.Point[1] + ray.Slope[1]*tXLo
+	pXLoZ := ray.Point[2] + ray.Slope[2]*tXLo
+	if onBox(pXLoX, pXLoY, pXLoZ, b.Lo[0], b.Hi[0], b.Lo[1], b.Hi[1], b.Lo[2], b.Hi[2]) {
+		return true
+	}
+
+	// Is our contact with the X-High plane actually on the box?
+	pXHiX := b.Hi[0]
+	pXHiY := ray.Point[1] + ray.Slope[1]*tXHi
+	pXHiZ := ray.Point[2] + ray.Slope[2]*tXHi
+	if onBox(pXHiX, pXHiY, pXHiZ, b.Lo[0], b.Hi[0], b.Lo[1], b.Hi[1], b.Lo[2], b.Hi[2]) {
+		return true
+	}
+
+	// Is our contact with the Y-Low plane actually on the box?
+	pYLoX := ray.Point[0] + ray.Slope[0]*tYLo
+	pYLoY := b.Lo[1]
+	pYLoZ := ray.Point[2] + ray.Slope[2]*tYLo
+	if onBox(pYLoX, pYLoY, pYLoZ, b.Lo[0], b.Hi[0], b.Lo[1], b.Hi[1], b.Lo[2], b.Hi[2]) {
+		return true
+	}
+
+	// Is our contact with the Y-High plane actually on the box?
+	pYHiX := ray.Point[0] + ray.Slope[0]*tYHi
+	pYHiY := b.Hi[1]
+	pYHiZ := ray.Point[2] + ray.Slope[2]*tYHi
+	if onBox(pYHiX, pYHiY, pYHiZ, b.Lo[0], b.Hi[0], b.Lo[1], b.Hi[1], b.Lo[2], b.Hi[2]) {
+		return true
+	}
+
+	// Is our contact with the Z-Low plane actually on the box?
+	pZLoX := ray.Point[0] + ray.Slope[0]*tZLo
+	pZLoY := ray.Point[1] + ray.Slope[1]*tZLo
+	pZLoZ := b.Lo[2]
+	if onBox(pZLoX, pZLoY, pZLoZ, b.Lo[0], b.Hi[0], b.Lo[1], b.Hi[1], b.Lo[2], b.Hi[2]) {
+		return true
+	}
+
+	// Is our contact with the Z-High plane actually on the box?
+	pZHiX := ray.Point[0] + ray.Slope[0]*tZHi
+	pZHiY := ray.Point[1] + ray.Slope[1]*tZHi
+	pZHiZ := b.Hi[2]
+	if onBox(pZHiX, pZHiY, pZHiZ, b.Lo[0], b.Hi[0], b.Lo[1], b.Hi[1], b.Lo[2], b.Hi[2]) {
+		return true
+	}
+
+	return false
 }
