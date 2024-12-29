@@ -703,7 +703,7 @@ func (b *AABB) RayContact(ray Ray, queryLo, queryHi float32) Contact {
 	pXLoY := ray.Point[1] + ray.Slope[1]*tXLo
 	pXLoZ := ray.Point[2] + ray.Slope[2]*tXLo
 	if onBox(pXLoX, pXLoY, pXLoZ, b.Lo[0], b.Hi[0], b.Lo[1], b.Hi[1], b.Lo[2], b.Hi[2]) {
-		if tXLo < minValidContact.T || minValidContact.Mode == ContactModeMiss {
+		if (tXLo < minValidContact.T || minValidContact.Mode == ContactModeMiss) && queryLo <= tXLo && tXLo <= queryHi {
 			minValidContact.T = tXLo
 			if ray.Slope[0] >= 0 {
 				minValidContact.Mode = ContactModeEnter
@@ -721,7 +721,7 @@ func (b *AABB) RayContact(ray Ray, queryLo, queryHi float32) Contact {
 	pXHiY := ray.Point[1] + ray.Slope[1]*tXHi
 	pXHiZ := ray.Point[2] + ray.Slope[2]*tXHi
 	if onBox(pXHiX, pXHiY, pXHiZ, b.Lo[0], b.Hi[0], b.Lo[1], b.Hi[1], b.Lo[2], b.Hi[2]) {
-		if tXHi < minValidContact.T || minValidContact.Mode == ContactModeMiss {
+		if (tXHi < minValidContact.T || minValidContact.Mode == ContactModeMiss) && queryLo <= tXHi && tXHi <= queryHi {
 			minValidContact.T = tXHi
 			if ray.Slope[0] < 0 {
 				minValidContact.Mode = ContactModeEnter
@@ -738,7 +738,7 @@ func (b *AABB) RayContact(ray Ray, queryLo, queryHi float32) Contact {
 	pYLoY := b.Lo[1]
 	pYLoZ := ray.Point[2] + ray.Slope[2]*tYLo
 	if onBox(pYLoX, pYLoY, pYLoZ, b.Lo[0], b.Hi[0], b.Lo[1], b.Hi[1], b.Lo[2], b.Hi[2]) {
-		if tYLo < minValidContact.T || minValidContact.Mode == ContactModeMiss {
+		if (tYLo < minValidContact.T || minValidContact.Mode == ContactModeMiss) && queryLo <= tYLo && tYLo <= queryHi {
 			minValidContact.T = tYLo
 			if ray.Slope[1] >= 0 {
 				minValidContact.Mode = ContactModeEnter
@@ -755,7 +755,7 @@ func (b *AABB) RayContact(ray Ray, queryLo, queryHi float32) Contact {
 	pYHiY := b.Hi[1]
 	pYHiZ := ray.Point[2] + ray.Slope[2]*tYHi
 	if onBox(pYHiX, pYHiY, pYHiZ, b.Lo[0], b.Hi[0], b.Lo[1], b.Hi[1], b.Lo[2], b.Hi[2]) {
-		if tYHi < minValidContact.T || minValidContact.Mode == ContactModeMiss {
+		if (tYHi < minValidContact.T || minValidContact.Mode == ContactModeMiss) && queryLo <= tYHi && tYHi <= queryHi {
 			minValidContact.T = tYHi
 			if ray.Slope[1] < 0 {
 				minValidContact.Mode = ContactModeEnter
@@ -772,7 +772,7 @@ func (b *AABB) RayContact(ray Ray, queryLo, queryHi float32) Contact {
 	pZLoY := ray.Point[1] + ray.Slope[1]*tZLo
 	pZLoZ := b.Lo[2]
 	if onBox(pZLoX, pZLoY, pZLoZ, b.Lo[0], b.Hi[0], b.Lo[1], b.Hi[1], b.Lo[2], b.Hi[2]) {
-		if tZLo < minValidContact.T || minValidContact.Mode == ContactModeMiss {
+		if (tZLo < minValidContact.T || minValidContact.Mode == ContactModeMiss) && queryLo <= tZLo && tZLo <= queryHi {
 			minValidContact.T = tZLo
 			if ray.Slope[2] >= 0 {
 				minValidContact.Mode = ContactModeEnter
@@ -789,7 +789,7 @@ func (b *AABB) RayContact(ray Ray, queryLo, queryHi float32) Contact {
 	pZHiY := ray.Point[1] + ray.Slope[1]*tZHi
 	pZHiZ := b.Hi[2]
 	if onBox(pZHiX, pZHiY, pZHiZ, b.Lo[0], b.Hi[0], b.Lo[1], b.Hi[1], b.Lo[2], b.Hi[2]) {
-		if tZHi < minValidContact.T || minValidContact.Mode == ContactModeMiss {
+		if (tZHi < minValidContact.T || minValidContact.Mode == ContactModeMiss) && queryLo <= tZHi && tZHi <= queryHi {
 			minValidContact.T = tZHi
 			if ray.Slope[2] < 0 {
 				minValidContact.Mode = ContactModeEnter
