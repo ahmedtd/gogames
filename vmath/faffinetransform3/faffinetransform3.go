@@ -4,6 +4,8 @@ import (
 	"shellworld/vmath/fmat33"
 	"shellworld/vmath/fmat44"
 	"shellworld/vmath/fvec3"
+
+	"github.com/barnex/fmath"
 )
 
 type T struct {
@@ -29,6 +31,26 @@ func Translate(x fvec3.T) T {
 	result := Identity()
 	result.Offset = x
 	return result
+}
+
+func AxisAngle(u fvec3.T, angle float32) T {
+	c := fmath.Cos(angle)
+	s := fmath.Sin(angle)
+
+	ux := u[0]
+	uy := u[1]
+	uz := u[2]
+
+	return T{
+		Linear: fmat33.T{
+			ux*ux*(1-c) + c, ux*uy*(1-c) - uz*s, ux*uz*(1-c) + uy*s, //
+			ux*uy*(1-c) + uz*s, uy*uy*(1-c) + c, uy*uz*(1-c) - ux*s, //
+			ux*uz*(1-c) - uy*s, uy*uz*(1-c) + ux*s, uz*uz*(1-c) + c,
+		},
+
+		Offset: fvec3.T{0.0, 0.0, 0.0},
+	}
+
 }
 
 func Compose(a, b T) T {

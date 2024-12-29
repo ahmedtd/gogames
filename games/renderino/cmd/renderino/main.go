@@ -8,50 +8,91 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"flag"
 	"fmt"
 	"image/color"
 	"log"
 	"math"
-	"math/rand"
 	"net/http"
 	_ "net/http/pprof"
-	"slices"
+	"os"
 	"sync"
 	"time"
 
 	"shellworld/games/renderino/resources"
+	"shellworld/vmath/faffinetransform3"
 	"shellworld/vmath/fmat33"
 	"shellworld/vmath/fvec3"
 
 	"github.com/barnex/fmath"
-	"github.com/chewxy/math32"
+	"github.com/google/subcommands"
 	"github.com/hajimehoshi/ebiten/v2"
+	"github.com/hajimehoshi/ebiten/v2/inpututil"
 	"github.com/hajimehoshi/ebiten/v2/text/v2"
 	"github.com/hajimehoshi/ebiten/v2/vector"
 	"golang.org/x/sync/errgroup"
 )
 
 func main() {
-	flag.Parse()
+	subcommands.Register(subcommands.HelpCommand(), "")
+	subcommands.Register(subcommands.FlagsCommand(), "")
+	subcommands.Register(subcommands.CommandsCommand(), "")
 
-	if err := do(); err != nil {
-		log.Fatalf("Error: %v", err)
-	}
+	subcommands.Register(&RunCommand{}, "")
+
+	flag.Parse()
+	ctx := context.Background()
+	os.Exit(int(subcommands.Execute(ctx)))
 }
 
-func do() error {
+type RunCommand struct {
+	numRenderThreads int
+}
+
+var _ subcommands.Command = (*RunCommand)(nil)
+
+func (c *RunCommand) Name() string {
+	return "run"
+}
+
+func (c *RunCommand) Synopsis() string {
+	return "run"
+}
+
+func (c *RunCommand) Usage() string {
+	return ""
+}
+
+func (c *RunCommand) SetFlags(f *flag.FlagSet) {
+	f.IntVar(&c.numRenderThreads, "num-render-threads", 0, "How many render threads should be used?")
+}
+
+func (c *RunCommand) Execute(ctx context.Context, f *flag.FlagSet, args ...any) subcommands.ExitStatus {
+	if err := c.executeError(ctx, f, args...); err != nil {
+		log.Printf("Error: %v", err)
+		return subcommands.ExitFailure
+	}
+
+	return subcommands.ExitSuccess
+}
+
+func (c *RunCommand) executeError(ctx context.Context, f *flag.FlagSet, args ...any) error {
 	go func() {
 		log.Println(http.ListenAndServe("localhost:8080", nil))
 	}()
 
-	renderer, err := NewRenderer()
+	renderer, err := NewRenderer(c.numRenderThreads)
 	if err != nil {
 		return fmt.Errorf("while creating renderer: %w", err)
 	}
+
 	ebiten.SetWindowResizingMode(ebiten.WindowResizingModeEnabled)
 	ebiten.SetWindowSize(640, 480)
 	ebiten.SetWindowTitle("renderino")
+
+	ebiten.SetCursorMode(ebiten.CursorModeCaptured)
+
 	if err := ebiten.RunGame(renderer); err != nil {
 		return fmt.Errorf("while running game: %w", err)
 	}
@@ -60,7 +101,9 @@ func do() error {
 }
 
 type Renderer struct {
-	SimTime float64
+	SimTime            float64
+	PreviousWorldState *WorldState
+	LatestWorldState   *WorldState
 
 	LatestRenderState *RenderState
 
@@ -95,17 +138,17 @@ type RenderTile struct {
 
 var _ ebiten.Game = &Renderer{}
 
-func NewRenderer() (*Renderer, error) {
+func NewRenderer(numRenderThreads int) (*Renderer, error) {
 	camera := &PinholeCamera{
 		Center:          fvec3.T{-10, 0, 10},
 		ApertureToWorld: fmat33.T{1, 0, 0, 0, 1, 0, 0, 0, 1},
 		Aperture:        fvec3.T{0.02, 0.018, 0.012},
 	}
-	camera.SetUp(fvec3.T{0.0, 0.0, 1.0})
-	camera.SetEye(fvec3.T{1.0, 0.1, -0.4})
+	// camera.SetUp(fvec3.T{0.0, 0.0, 1.0})
+	// camera.SetEye(fvec3.T{1.0, 0.1, -0.4})
 
 	renderGroup := &errgroup.Group{}
-	renderGroup.SetLimit(3)
+	renderGroup.SetLimit(numRenderThreads)
 
 	uiFaceSource, err := text.NewGoTextFaceSource(bytes.NewReader(resources.DepartureMonoOTF))
 	if err != nil {
@@ -148,6 +191,8 @@ func NewRenderer() (*Renderer, error) {
 		}
 	}
 
+	cursorX, cursorY := ebiten.CursorPosition()
+
 	r := &Renderer{
 		curUpscaleFactor: 1.0,
 
@@ -161,6 +206,15 @@ func NewRenderer() (*Renderer, error) {
 			Size:   24,
 		},
 
+		PreviousWorldState: &WorldState{
+			CursorX: cursorX,
+			CursorY: cursorY,
+		},
+		LatestWorldState: &WorldState{
+			CursorX: cursorX,
+			CursorY: cursorY,
+		},
+
 		LatestRenderState: staticScene,
 	}
 
@@ -170,11 +224,57 @@ func NewRenderer() (*Renderer, error) {
 func (r *Renderer) Update() error {
 	r.SimTime += 1 / 60.0
 
+	if inpututil.IsKeyJustPressed(ebiten.KeyMinus) {
+		r.curUpscaleFactor -= 0.25
+		if r.curUpscaleFactor < 1.0 {
+			r.curUpscaleFactor = 1.0
+		}
+	}
+	if inpututil.IsKeyJustPressed(ebiten.KeyEqual) {
+		r.curUpscaleFactor += 0.25
+	}
+
+	r.LatestWorldState.CursorX, r.LatestWorldState.CursorY = ebiten.CursorPosition()
+
+	// TODO: Camera should be tracked in a world state, and we derive the render state from it.
+	camStep := float32(1.0 / 8.0)
+	if ebiten.IsKeyPressed(ebiten.KeyW) {
+		r.LatestRenderState.Camera.Center[0] += r.LatestRenderState.Camera.Eye()[0] * camStep
+		r.LatestRenderState.Camera.Center[1] += r.LatestRenderState.Camera.Eye()[1] * camStep
+		r.LatestRenderState.Camera.Center[2] += r.LatestRenderState.Camera.Eye()[2] * camStep
+	}
+	if ebiten.IsKeyPressed(ebiten.KeyS) {
+		r.LatestRenderState.Camera.Center[0] -= r.LatestRenderState.Camera.Eye()[0] * camStep
+		r.LatestRenderState.Camera.Center[1] -= r.LatestRenderState.Camera.Eye()[1] * camStep
+		r.LatestRenderState.Camera.Center[2] -= r.LatestRenderState.Camera.Eye()[2] * camStep
+	}
+	if ebiten.IsKeyPressed(ebiten.KeyA) {
+		r.LatestRenderState.Camera.Center[0] += r.LatestRenderState.Camera.Left()[0] * camStep
+		r.LatestRenderState.Camera.Center[1] += r.LatestRenderState.Camera.Left()[1] * camStep
+		r.LatestRenderState.Camera.Center[2] += r.LatestRenderState.Camera.Left()[2] * camStep
+	}
+	if ebiten.IsKeyPressed(ebiten.KeyD) {
+		r.LatestRenderState.Camera.Center[0] -= r.LatestRenderState.Camera.Left()[0] * camStep
+		r.LatestRenderState.Camera.Center[1] -= r.LatestRenderState.Camera.Left()[1] * camStep
+		r.LatestRenderState.Camera.Center[2] -= r.LatestRenderState.Camera.Left()[2] * camStep
+	}
+	cursorDeltaX := r.LatestWorldState.CursorX - r.PreviousWorldState.CursorX
+	cursorDeltaY := r.LatestWorldState.CursorY - r.PreviousWorldState.CursorY
+	rotateAngleX := float32(cursorDeltaX) * 0.005
+	rotateAngleY := float32(cursorDeltaY) * 0.005
+	rotateX := faffinetransform3.AxisAngle(fvec3.T{0.0, 0.0, 1.0}, -rotateAngleX)
+	rotateY := faffinetransform3.AxisAngle(r.LatestRenderState.Camera.Left(), rotateAngleY)
+	r.LatestRenderState.Camera.ApertureToWorld = fmat33.Orthonormalize(fmat33.MulMM(fmat33.MulMM(rotateX.Linear, rotateY.Linear),
+		r.LatestRenderState.Camera.ApertureToWorld))
+
+	// TODO: Derive LatestRenderState from LatestWorldState
 	r.LatestRenderState.PointLights[0].Center = fvec3.T{
 		float32(math.Cos(r.SimTime)),
 		float32(math.Sin(r.SimTime)),
 		2.0,
 	}
+
+	r.PreviousWorldState, r.LatestWorldState = r.LatestWorldState, r.PreviousWorldState
 
 	return nil
 }
@@ -184,28 +284,6 @@ func (r *Renderer) Draw(screen *ebiten.Image) {
 	drawDelta := drawStart.Sub(r.lastDrawStart)
 	if r.lastDrawStart.IsZero() {
 		drawDelta = time.Second / 60
-	}
-
-	// Compute upscaling factor based on how long it has been since the last
-	// draw call.  Adjusting r.curUpscaleFactor won't actually take effect until
-	// the next call to r.Layout().
-	//
-	// Note that because ebiten is targeting 60FPS, the error should only go
-	// slightly negative.  Without that logic, we would need additional logic
-	// because the controller would try to lower the upscaling factor below 1 to
-	// do more work per frame.
-	drawDeltaError := drawDelta.Seconds() - (1.0 / 60.0)
-	r.upscaleTuningIntegrator = 0.99*r.upscaleTuningIntegrator + drawDeltaError
-	newUpscaleFactor := 1.0 + 0.1*drawDeltaError + 8.0*r.upscaleTuningIntegrator
-	if newUpscaleFactor < 1.0 {
-		// Dynamic upscaling is not allowed to try to introduce more work to
-		// increase the frame time.
-		newUpscaleFactor = 1.0
-	}
-	if math.Abs(newUpscaleFactor-r.curUpscaleFactor) > 0.5 || newUpscaleFactor == 1.0 {
-		// If upscaler control is proposing a real change, or targeting full
-		// resolution, apply it.
-		r.curUpscaleFactor = newUpscaleFactor
 	}
 
 	// Compute desired size of the render target according to upscaling factor.
@@ -331,9 +409,11 @@ func (r *Renderer) Draw(screen *ebiten.Image) {
 	drawRenderImageOptions.GeoM.Scale(r.curUpscaleFactor, r.curUpscaleFactor)
 	screen.DrawImage(r.renderImage, drawRenderImageOptions)
 
+	cursorX, cursorY := ebiten.CursorPosition()
+
 	// Draw info text
 	const x, y = 20, 20
-	infoText := fmt.Sprintf("fps=%f\ncurUpscaleFactor=%f\nnewUpscaleFactor=%f", 1.0/drawDelta.Seconds(), r.curUpscaleFactor, newUpscaleFactor)
+	infoText := fmt.Sprintf("fps=%f\ncurUpscaleFactor=%f\ncursor=%d,%d", 1.0/drawDelta.Seconds(), r.curUpscaleFactor, cursorX, cursorY)
 	w, h := text.Measure(infoText, r.uiNormalFace, r.uiNormalFace.Size*1.5)
 	vector.DrawFilledRect(screen, x, y, float32(w), float32(h), color.RGBA{0x80, 0x80, 0x80, 0xff}, false)
 	op := &text.DrawOptions{}
@@ -346,6 +426,13 @@ func (r *Renderer) Draw(screen *ebiten.Image) {
 
 func (r *Renderer) Layout(outsideWidth, outsideHeight int) (int, int) {
 	return outsideWidth, outsideHeight
+}
+
+type WorldState struct {
+	CursorX, CursorY int
+
+	CameraPosition fvec3.T
+	CameraEye      fvec3.T
 }
 
 type RenderState struct {
@@ -383,7 +470,11 @@ func (r *RenderState) RenderPixel(px, py, wx, wy int) RGBPower {
 	}
 
 	if minContact.Mode == ContactModeMiss {
-		return RGBPower{0.0, 0.0, 0.0}
+		// Render a simple horizon at infinity for orientation
+		if ray.Slope[2] < 0.0 {
+			return RGBPower{0.0, 0.0, 0.0}
+		}
+		return RGBPower{0.0, 0.1, 0.5}
 	}
 
 	power := r.matteShade(&minContact)
@@ -754,95 +845,95 @@ type BVHElement struct {
 	SceneElementRef int
 }
 
-func MakeBVHTree(elements []BVHElement) *BVHTree {
-	root := &BVHNode{}
+// func MakeBVHTree(elements []BVHElement) *BVHTree {
+// 	root := &BVHNode{}
 
-	if len(elements) == 0 {
-		return &BVHTree{
-			Root: root,
-		}
-	}
+// 	if len(elements) == 0 {
+// 		return &BVHTree{
+// 			Root: root,
+// 		}
+// 	}
 
-	// Compute bounding box for this node
-	bounds := elements[0].Bounds
-	for _, elt := range elements {
-		bounds.Lo[0] = min(bounds.Lo[0], elt.Bounds.Lo[0])
-		bounds.Lo[1] = min(bounds.Lo[1], elt.Bounds.Lo[1])
-		bounds.Lo[2] = min(bounds.Lo[2], elt.Bounds.Lo[2])
+// 	// Compute bounding box for this node
+// 	bounds := elements[0].Bounds
+// 	for _, elt := range elements {
+// 		bounds.Lo[0] = min(bounds.Lo[0], elt.Bounds.Lo[0])
+// 		bounds.Lo[1] = min(bounds.Lo[1], elt.Bounds.Lo[1])
+// 		bounds.Lo[2] = min(bounds.Lo[2], elt.Bounds.Lo[2])
 
-		bounds.Hi[0] = max(bounds.Hi[0], elt.Bounds.Hi[0])
-		bounds.Hi[1] = max(bounds.Hi[1], elt.Bounds.Hi[1])
-		bounds.Hi[2] = max(bounds.Hi[2], elt.Bounds.Hi[2])
-	}
-	root.Bounds = bounds
+// 		bounds.Hi[0] = max(bounds.Hi[0], elt.Bounds.Hi[0])
+// 		bounds.Hi[1] = max(bounds.Hi[1], elt.Bounds.Hi[1])
+// 		bounds.Hi[2] = max(bounds.Hi[2], elt.Bounds.Hi[2])
+// 	}
+// 	root.Bounds = bounds
 
-	// Split axis starts on 0 axis.
-	root.Axis = 0
+// 	// Split axis starts on 0 axis.
+// 	root.Axis = 0
 
-	// Recursively split elements into hi and low children of the node.
-	assembleBVHTree(root, elements)
+// 	// Recursively split elements into hi and low children of the node.
+// 	assembleBVHTree(root, elements)
 
-	return &BVHTree{
-		Root: root,
-	}
-}
+// 	return &BVHTree{
+// 		Root: root,
+// 	}
+// }
 
-func assembleBVHTree(root *BVHNode, elements []BVHElement) {
-	if len(elements) < 1 {
-		panic("precondition failure in assembleBVHTree")
-	}
+// func assembleBVHTree(root *BVHNode, elements []BVHElement) {
+// 	if len(elements) < 1 {
+// 		panic("precondition failure in assembleBVHTree")
+// 	}
 
-	if len(elements) == 1 {
-		// Base case.  Make root a concrete node that holds only this elements.
-		root.Bounds = elements[0].Bounds
-		root.SceneElementRef = elements[0].SceneElementRef
-	}
+// 	if len(elements) == 1 {
+// 		// Base case.  Make root a concrete node that holds only this elements.
+// 		root.Bounds = elements[0].Bounds
+// 		root.SceneElementRef = elements[0].SceneElementRef
+// 	}
 
-	// Recursive case.  Pick a reasonable split and divide elements into a high
-	// and low child of the current node.
+// 	// Recursive case.  Pick a reasonable split and divide elements into a high
+// 	// and low child of the current node.
 
-	// Sort all elements according to the split axis.
-	slices.SortFunc[[]BVHElement, BVHElement](elements, func(a, b BVHElement) int {
-		diff := a.Bounds.Lo[root.Axis] - b.Bounds.Lo[root.Axis]
-		switch {
-		case diff < 0:
-			return -1
-		case diff == 0:
-			return 0
-		default:
-			return 1
-		}
-	})
+// 	// Sort all elements according to the split axis.
+// 	slices.SortFunc[[]BVHElement, BVHElement](elements, func(a, b BVHElement) int {
+// 		diff := a.Bounds.Lo[root.Axis] - b.Bounds.Lo[root.Axis]
+// 		switch {
+// 		case diff < 0:
+// 			return -1
+// 		case diff == 0:
+// 			return 0
+// 		default:
+// 			return 1
+// 		}
+// 	})
 
-	// Evaluate three random indices for use as the split candidate
-	bestSurfaceArea := math32.MaxFloat32()
-	bestSplitIndex := -1
-	for i := 0; i < 3; i++ {
-		splitIndex := rand.Intn(len(elements))
+// 	// Evaluate three random indices for use as the split candidate
+// 	bestSurfaceArea := math32.MaxFloat32
+// 	bestSplitIndex := -1
+// 	for i := 0; i < 3; i++ {
+// 		splitIndex := rand.Intn(len(elements))
 
-	}
+// 	}
 
-	// Compute bounding box for this node
-	bounds := elements[0].Bounds
-	for _, elt := range elements {
-		bounds.Lo[0] = min(bounds.Lo[0], elt.Bounds.Lo[0])
-		bounds.Lo[1] = min(bounds.Lo[1], elt.Bounds.Lo[1])
-		bounds.Lo[2] = min(bounds.Lo[2], elt.Bounds.Lo[2])
+// 	// Compute bounding box for this node
+// 	bounds := elements[0].Bounds
+// 	for _, elt := range elements {
+// 		bounds.Lo[0] = min(bounds.Lo[0], elt.Bounds.Lo[0])
+// 		bounds.Lo[1] = min(bounds.Lo[1], elt.Bounds.Lo[1])
+// 		bounds.Lo[2] = min(bounds.Lo[2], elt.Bounds.Lo[2])
 
-		bounds.Hi[0] = max(bounds.Hi[0], elt.Bounds.Hi[0])
-		bounds.Hi[1] = max(bounds.Hi[1], elt.Bounds.Hi[1])
-		bounds.Hi[2] = max(bounds.Hi[2], elt.Bounds.Hi[2])
-	}
+// 		bounds.Hi[0] = max(bounds.Hi[0], elt.Bounds.Hi[0])
+// 		bounds.Hi[1] = max(bounds.Hi[1], elt.Bounds.Hi[1])
+// 		bounds.Hi[2] = max(bounds.Hi[2], elt.Bounds.Hi[2])
+// 	}
 
-	root.Bounds = bounds
+// 	root.Bounds = bounds
 
-}
+// }
 
-// RayTest fires a ray through the BVH tree, invoking checkSceneElement with the
-// index of any scene element that could be hit.
-func (bvh *BVHTree) RayTest(ray Ray, queryLo, queryHi float32, checkSceneElement func(i int) bool) {
+// // RayTest fires a ray through the BVH tree, invoking checkSceneElement with the
+// // index of any scene element that could be hit.
+// func (bvh *BVHTree) RayTest(ray Ray, queryLo, queryHi float32, checkSceneElement func(i int) bool) {
 
-}
+// }
 
 type BVHBox struct {
 	Lo fvec3.T

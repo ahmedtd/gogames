@@ -156,3 +156,41 @@ func Inverse(m T) T {
 	SolveInplace(&m, &a)
 	return a
 }
+
+func Orthonormalize(m T) T {
+	u1x, u1y, u1z := m[0], m[3], m[6]
+	u1len := fmath.Sqrt(u1x*u1x + u1y*u1y + u1z*u1z)
+	u1x /= u1len
+	u1y /= u1len
+	u1z /= u1len
+
+	u2x, u2y, u2z := m[1], m[4], m[7]
+	u2dotu1 := u2x*u1x + u2y*u1y + u2z*u1z
+	u2x -= u2dotu1 * u1x
+	u2y -= u2dotu1 * u1y
+	u2z -= u2dotu1 * u1z
+	u2len := fmath.Sqrt(u2x*u2x + u2y*u2y + u2z*u2z)
+	u2x /= u2len
+	u2y /= u2len
+	u2z /= u2len
+
+	u3x, u3y, u3z := m[2], m[5], m[8]
+	u3dotu1 := u3x*u1x + u3y*u1y + u3z*u1z
+	u3x -= u3dotu1 * u1x
+	u3y -= u3dotu1 * u1y
+	u3z -= u3dotu1 * u1z
+	u3dotu2 := u3x*u2x + u3y*u2y + u3z*u2z
+	u3x -= u3dotu2 * u2x
+	u3y -= u3dotu2 * u2y
+	u3z -= u3dotu2 * u2z
+	u3len := fmath.Sqrt(u3x*u3x + u3y*u3y + u3z*u3z)
+	u3x /= u3len
+	u3y /= u3len
+	u3z /= u3len
+
+	return T{
+		u1x, u2x, u3x,
+		u1y, u2y, u3y,
+		u1z, u2z, u3z,
+	}
+}

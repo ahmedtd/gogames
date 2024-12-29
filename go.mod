@@ -1,11 +1,12 @@
 module shellworld
 
-go 1.22.0
+go 1.23
 
 require (
 	github.com/barnex/fmath v0.0.0-20150108074215-ec9671f295c2
 	github.com/g3n/engine v0.2.0
 	github.com/google/go-cmp v0.5.4
+	github.com/google/subcommands v1.2.0
 	github.com/hajimehoshi/ebiten/v2 v2.8.5
 	go.starlark.net v0.0.0-20230112144946-fae38c8a6d89
 	golang.org/x/sync v0.8.0
