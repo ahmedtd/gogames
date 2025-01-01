@@ -1,7 +1,7 @@
 package fvec3
 
 import (
-	"math/rand"
+	"math/rand/v2"
 
 	"github.com/barnex/fmath"
 )
@@ -74,14 +74,28 @@ func Reflect(a, n T) T {
 	return SubVV(a, MulVS(n, 2*IProd(a, n)))
 }
 
-func UniformUnitDistribution(rng *rand.Rand) T {
+func UniformSphereDistribution(rng *rand.Rand, radius float32) T {
 	result := T{}
 	for {
-		result[0] = 2 * (rng.Float32() - 0.5)
-		result[1] = 2 * (rng.Float32() - 0.5)
-		result[2] = 2 * (rng.Float32() - 0.5)
+		result[0] = 2 * radius * (rng.Float32() - 0.5)
+		result[1] = 2 * radius * (rng.Float32() - 0.5)
+		result[2] = 2 * radius * (rng.Float32() - 0.5)
 		normSquared := result[0]*result[0] + result[1]*result[1] + result[2]*result[2]
-		if normSquared <= 1.0 && normSquared != 0.0 {
+		if normSquared <= radius*radius && normSquared != 0.0 {
+			break
+		}
+	}
+	return result
+}
+
+func UniformUnitDistribution(rng *rand.Rand, radius float32) T {
+	result := T{}
+	for {
+		result[0] = 2 * radius * (rng.Float32() - 0.5)
+		result[1] = 2 * radius * (rng.Float32() - 0.5)
+		result[2] = 2 * radius * (rng.Float32() - 0.5)
+		normSquared := result[0]*result[0] + result[1]*result[1] + result[2]*result[2]
+		if normSquared <= radius*radius && normSquared != 0.0 {
 			break
 		}
 	}
@@ -89,7 +103,7 @@ func UniformUnitDistribution(rng *rand.Rand) T {
 }
 
 func HemisphereUnitVec3Distribution(normal T, rng *rand.Rand) T {
-	candidate := UniformUnitDistribution(rng)
+	candidate := UniformUnitDistribution(rng, 1)
 	if IProd(candidate, normal) < 0.0 {
 		candidate[0] = -candidate[0]
 		candidate[1] = -candidate[1]
@@ -100,7 +114,7 @@ func HemisphereUnitVec3Distribution(normal T, rng *rand.Rand) T {
 
 func CosineUnitVec3Distribution(normal T, rng *rand.Rand) T {
 	for {
-		candidate := UniformUnitDistribution(rng)
+		candidate := UniformUnitDistribution(rng, 1)
 		cosine := IProd(normal, candidate)
 
 		if cosine < 0.0 {
@@ -134,7 +148,7 @@ func GaussianUnitVec3Distribution(normal T, mid float32, rng *rand.Rand) T {
 	// will start as v gets smaller than ~(1/1400).
 
 	for {
-		candidate := UniformUnitDistribution(rng)
+		candidate := UniformUnitDistribution(rng, 1)
 		cosine := IProd(normal, candidate)
 		if cosine < 0.0 {
 			cosine = -cosine

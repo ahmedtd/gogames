@@ -14,6 +14,7 @@ import (
 	"image/color"
 	"log"
 	"math"
+	"math/rand/v2"
 	"net/http"
 	_ "net/http/pprof"
 	"os"
@@ -88,7 +89,7 @@ func (c *RunCommand) executeError(ctx context.Context, f *flag.FlagSet, args ...
 	}
 
 	ebiten.SetWindowResizingMode(ebiten.WindowResizingModeEnabled)
-	ebiten.SetWindowSize(640, 480)
+	ebiten.SetWindowSize(1024, 768)
 	ebiten.SetWindowTitle("renderino")
 
 	ebiten.SetCursorMode(ebiten.CursorModeCaptured)
@@ -101,7 +102,6 @@ func (c *RunCommand) executeError(ctx context.Context, f *flag.FlagSet, args ...
 }
 
 type Renderer struct {
-	SimTime            float64
 	PreviousWorldState *WorldState
 	LatestWorldState   *WorldState
 
@@ -144,8 +144,6 @@ func NewRenderer(numRenderThreads int) (*Renderer, error) {
 		ApertureToWorld: fmat33.T{1, 0, 0, 0, 1, 0, 0, 0, 1},
 		Aperture:        fvec3.T{0.02, 0.018, 0.012},
 	}
-	// camera.SetUp(fvec3.T{0.0, 0.0, 1.0})
-	// camera.SetEye(fvec3.T{1.0, 0.1, -0.4})
 
 	renderGroup := &errgroup.Group{}
 	renderGroup.SetLimit(numRenderThreads)
@@ -175,23 +173,26 @@ func NewRenderer(numRenderThreads int) (*Renderer, error) {
 		},
 	}
 
-	// staticScene.Spheres = []Sphere{
-	// 	{
-	// 		Center: fvec3.T{10.0, 0.0, 0.0},
-	// 		Radius: 8.0,
-	// 	},
-	// }
-
-	for i := 0; i < 1; i++ {
-		for j := 0; j < 1; j++ {
-			staticScene.AABBs = append(staticScene.AABBs, AABB{
-				Lo: fvec3.T{10 + 10*float32(i) - 4, 0 + 10*float32(j) - 4, -4},
-				Hi: fvec3.T{10 + 10*float32(i) + 4, 0 + 10*float32(j) + 4, 4},
-			})
-		}
-	}
+	previousWorldState := &WorldState{}
 
 	cursorX, cursorY := ebiten.CursorPosition()
+	previousWorldState.CursorX, previousWorldState.CursorY = cursorX, cursorY
+
+	rng := rand.New(rand.NewPCG(1, 2))
+
+	// Initialize boids
+	previousWorldState.BoidRNG = rand.New(rand.NewPCG(1, 2))
+	previousWorldState.NextBoidTargetSwitchTime = 10.0
+	previousWorldState.BoidTarget = fvec3.UniformSphereDistribution(rng, 100.0)
+	previousWorldState.BoidTarget[2] = 0
+	previousWorldState.BoidPositions = make([]fvec3.T, 50)
+	previousWorldState.BoidVelocities = make([]fvec3.T, 50)
+	for i := 0; i < 50; i++ {
+		previousWorldState.BoidPositions[i] = fvec3.UniformSphereDistribution(rng, 100.0)
+		previousWorldState.BoidPositions[i][2] = 0
+		previousWorldState.BoidVelocities[i] = fvec3.UniformSphereDistribution(rng, 1.0)
+		previousWorldState.BoidVelocities[i][2] = 0
+	}
 
 	r := &Renderer{
 		curUpscaleFactor: 1.0,
@@ -206,14 +207,8 @@ func NewRenderer(numRenderThreads int) (*Renderer, error) {
 			Size:   24,
 		},
 
-		PreviousWorldState: &WorldState{
-			CursorX: cursorX,
-			CursorY: cursorY,
-		},
-		LatestWorldState: &WorldState{
-			CursorX: cursorX,
-			CursorY: cursorY,
-		},
+		PreviousWorldState: previousWorldState,
+		LatestWorldState:   &WorldState{},
 
 		LatestRenderState: staticScene,
 	}
@@ -222,7 +217,7 @@ func NewRenderer(numRenderThreads int) (*Renderer, error) {
 }
 
 func (r *Renderer) Update() error {
-	r.SimTime += 1 / 60.0
+	r.LatestWorldState.SimTime = r.PreviousWorldState.SimTime + (1.0 / 60.0)
 
 	if inpututil.IsKeyJustPressed(ebiten.KeyMinus) {
 		r.curUpscaleFactor -= 0.25
@@ -235,6 +230,101 @@ func (r *Renderer) Update() error {
 	}
 
 	r.LatestWorldState.CursorX, r.LatestWorldState.CursorY = ebiten.CursorPosition()
+
+	r.LatestWorldState.BoidRNG = r.PreviousWorldState.BoidRNG
+	r.LatestWorldState.NextBoidTargetSwitchTime = r.PreviousWorldState.NextBoidTargetSwitchTime
+	r.LatestWorldState.BoidTarget = r.PreviousWorldState.BoidTarget
+
+	if r.PreviousWorldState.SimTime > r.PreviousWorldState.NextBoidTargetSwitchTime {
+		r.LatestWorldState.NextBoidTargetSwitchTime = r.PreviousWorldState.SimTime + 10.0
+		r.LatestWorldState.BoidTarget = fvec3.UniformSphereDistribution(r.PreviousWorldState.BoidRNG, 100.0)
+		r.LatestWorldState.BoidTarget[2] = 0.0
+	}
+
+	if len(r.LatestWorldState.BoidPositions) != len(r.PreviousWorldState.BoidPositions) {
+		r.LatestWorldState.BoidPositions = make([]fvec3.T, len(r.PreviousWorldState.BoidPositions))
+	}
+	if len(r.LatestWorldState.BoidVelocities) != len(r.PreviousWorldState.BoidVelocities) {
+		r.LatestWorldState.BoidVelocities = make([]fvec3.T, len(r.PreviousWorldState.BoidVelocities))
+	}
+
+	target := r.PreviousWorldState.BoidTarget
+
+	// Boids update
+	for i := 0; i < len(r.LatestWorldState.BoidPositions); i++ {
+		force := fvec3.T{}
+
+		// Every boid is attracted towards the flock target and wants to circle around it.
+		offset := fvec3.SubVV(target, r.PreviousWorldState.BoidPositions[i])
+		homingForce := offset
+		force = fvec3.AddVV(force, homingForce)
+		// circForce := fvec3.CProd(offset, fvec3.T{0.0, 0.0, 1.0})
+		// force = fvec3.AddVV(force, fvec3.Normalize(circForce))
+
+		// Every boid gets a drag force.
+		speed := r.PreviousWorldState.BoidVelocities[i].Norm()
+		if speed > 1.0 {
+			dragForce := fvec3.MulVS(r.PreviousWorldState.BoidVelocities[i], -1.0*0.1*speed)
+			force = fvec3.AddVV(force, dragForce)
+		}
+
+		numCohesionInfluencers := 0
+		averagePositionOfNeighbors := fvec3.T{}
+		numAlignmentInfluencers := 0
+		averageVelocityOfNeighbors := fvec3.T{}
+		totalSeparationForce := fvec3.T{}
+		for j := 0; j < len(r.PreviousWorldState.BoidPositions); j++ {
+			// Don't influence yourself.
+			if i == j {
+				continue
+			}
+
+			offset := fvec3.SubVV(r.PreviousWorldState.BoidPositions[i], r.PreviousWorldState.BoidPositions[j])
+
+			separationHeading := fvec3.Normalize(offset)
+			separationDistance := offset.Norm()
+
+			if separationDistance < 3.0 {
+				numCohesionInfluencers++
+				averagePositionOfNeighbors = fvec3.AddVV(averagePositionOfNeighbors, r.PreviousWorldState.BoidPositions[j])
+			}
+
+			if separationDistance < 6.0 {
+				numAlignmentInfluencers++
+				averageVelocityOfNeighbors = fvec3.AddVV(averageVelocityOfNeighbors, r.PreviousWorldState.BoidVelocities[j])
+			}
+
+			if separationDistance < 2.0 {
+				totalSeparationForce = fvec3.AddVV(totalSeparationForce, fvec3.MulVS(separationHeading, 100.0/(1.0+separationDistance*separationDistance)))
+			}
+		}
+
+		// Calculate cohesion
+		if numCohesionInfluencers != 0 {
+			averagePositionOfNeighbors = fvec3.DivVS(averagePositionOfNeighbors, float32(numCohesionInfluencers))
+			cohesionOffset := fvec3.SubVV(averagePositionOfNeighbors, r.PreviousWorldState.BoidPositions[i])
+			totalCohesionForce := fvec3.MulVS(cohesionOffset, 0.5)
+			force = fvec3.AddVV(force, totalCohesionForce)
+		}
+
+		// Calculate alignment
+		if numAlignmentInfluencers != 0 {
+			averageVelocityOfNeighbors = fvec3.DivVS(averageVelocityOfNeighbors, float32(numAlignmentInfluencers))
+			totalAlignmentForce := fvec3.MulVS(averageVelocityOfNeighbors, 1.0)
+			force = fvec3.AddVV(force, totalAlignmentForce)
+		}
+
+		// Apply separation.
+		force = fvec3.AddVV(force, totalSeparationForce)
+
+		r.LatestWorldState.BoidVelocities[i][0] = r.PreviousWorldState.BoidVelocities[i][0] + 0.1*force[0]*(1.0/60.0)
+		r.LatestWorldState.BoidVelocities[i][1] = r.PreviousWorldState.BoidVelocities[i][1] + 0.1*force[1]*(1.0/60.0)
+		r.LatestWorldState.BoidVelocities[i][2] = r.PreviousWorldState.BoidVelocities[i][2] + 0.1*force[2]*(1.0/60.0)
+
+		r.LatestWorldState.BoidPositions[i][0] = r.PreviousWorldState.BoidPositions[i][0] + r.PreviousWorldState.BoidVelocities[i][0]*(1.0/60.0)
+		r.LatestWorldState.BoidPositions[i][1] = r.PreviousWorldState.BoidPositions[i][1] + r.PreviousWorldState.BoidVelocities[i][1]*(1.0/60.0)
+		r.LatestWorldState.BoidPositions[i][2] = r.PreviousWorldState.BoidPositions[i][2] + r.PreviousWorldState.BoidVelocities[i][2]*(1.0/60.0)
+	}
 
 	// TODO: Camera should be tracked in a world state, and we derive the render state from it.
 	camStep := float32(1.0 / 8.0)
@@ -269,9 +359,20 @@ func (r *Renderer) Update() error {
 
 	// TODO: Derive LatestRenderState from LatestWorldState
 	r.LatestRenderState.PointLights[0].Center = fvec3.T{
-		float32(math.Cos(r.SimTime)),
-		float32(math.Sin(r.SimTime)),
+		float32(math.Cos(r.LatestWorldState.SimTime)),
+		float32(math.Sin(r.LatestWorldState.SimTime)),
 		2.0,
+	}
+
+	r.LatestRenderState.AABBs = make([]AABB, len(r.LatestWorldState.BoidPositions))
+	for i := 0; i < len(r.LatestWorldState.BoidPositions); i++ {
+		r.LatestRenderState.AABBs[i].Lo[0] = r.LatestWorldState.BoidPositions[i][0] - 0.5
+		r.LatestRenderState.AABBs[i].Lo[1] = r.LatestWorldState.BoidPositions[i][1] - 0.5
+		r.LatestRenderState.AABBs[i].Lo[2] = r.LatestWorldState.BoidPositions[i][2] - 0.5
+
+		r.LatestRenderState.AABBs[i].Hi[0] = r.LatestWorldState.BoidPositions[i][0] + 0.5
+		r.LatestRenderState.AABBs[i].Hi[1] = r.LatestWorldState.BoidPositions[i][1] + 0.5
+		r.LatestRenderState.AABBs[i].Hi[2] = r.LatestWorldState.BoidPositions[i][2] + 0.5
 	}
 
 	r.PreviousWorldState, r.LatestWorldState = r.LatestWorldState, r.PreviousWorldState
@@ -429,10 +530,18 @@ func (r *Renderer) Layout(outsideWidth, outsideHeight int) (int, int) {
 }
 
 type WorldState struct {
+	SimTime float64
+
 	CursorX, CursorY int
 
 	CameraPosition fvec3.T
 	CameraEye      fvec3.T
+
+	BoidRNG                  *rand.Rand
+	NextBoidTargetSwitchTime float64
+	BoidTarget               fvec3.T
+	BoidPositions            []fvec3.T
+	BoidVelocities           []fvec3.T
 }
 
 type RenderState struct {
