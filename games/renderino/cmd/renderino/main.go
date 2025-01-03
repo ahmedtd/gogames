@@ -18,6 +18,7 @@ import (
 	"net/http"
 	_ "net/http/pprof"
 	"os"
+	"slices"
 	"sync"
 	"time"
 
@@ -185,9 +186,9 @@ func NewRenderer(numRenderThreads int) (*Renderer, error) {
 	previousWorldState.NextBoidTargetSwitchTime = 10.0
 	previousWorldState.BoidTarget = fvec3.UniformSphereDistribution(rng, 100.0)
 	previousWorldState.BoidTarget[2] = 0
-	previousWorldState.BoidPositions = make([]fvec3.T, 50)
-	previousWorldState.BoidVelocities = make([]fvec3.T, 50)
-	for i := 0; i < 50; i++ {
+	previousWorldState.BoidPositions = make([]fvec3.T, 200)
+	previousWorldState.BoidVelocities = make([]fvec3.T, 200)
+	for i := 0; i < 200; i++ {
 		previousWorldState.BoidPositions[i] = fvec3.UniformSphereDistribution(rng, 100.0)
 		previousWorldState.BoidPositions[i][2] = 0
 		previousWorldState.BoidVelocities[i] = fvec3.UniformSphereDistribution(rng, 1.0)
@@ -375,6 +376,19 @@ func (r *Renderer) Update() error {
 		r.LatestRenderState.AABBs[i].Hi[2] = r.LatestWorldState.BoidPositions[i][2] + 0.5
 	}
 
+	// Build tree
+	nodes := []*BVHNode{}
+	for i := 0; i < len(r.LatestRenderState.AABBs); i++ {
+		node := &BVHNode{
+			Type: BVHNodeTypeConcrete,
+			Lo:   r.LatestRenderState.AABBs[i].Lo,
+			Hi:   r.LatestRenderState.AABBs[i].Hi,
+			Ref:  i,
+		}
+		nodes = append(nodes, node)
+	}
+	r.LatestRenderState.Tree = MakeBVHTree(nodes)
+
 	r.PreviousWorldState, r.LatestWorldState = r.LatestWorldState, r.PreviousWorldState
 
 	return nil
@@ -554,6 +568,8 @@ type RenderState struct {
 	AmbientLights     []AmbientLight
 	DirectionalLights []DirectionalLight
 	PointLights       []PointLight
+
+	Tree *BVHTree
 }
 
 func (r *RenderState) RenderPixel(px, py, wx, wy int) RGBPower {
@@ -563,20 +579,30 @@ func (r *RenderState) RenderPixel(px, py, wx, wy int) RGBPower {
 		Mode: ContactModeMiss,
 		T:    100000000.0,
 	}
-	for i := range r.Spheres {
-		if contact := r.Spheres[i].RayContact(ray, 0.0, minContact.T); contact.Mode != ContactModeMiss {
+
+	r.Tree.RayTest(ray, func(ref int) {
+		contact := r.AABBs[ref].RayContact(ray, 0.0, minContact.T)
+		if contact.Mode != ContactModeMiss {
 			if contact.T > 0.0 && contact.T < minContact.T {
 				minContact = contact
 			}
 		}
-	}
-	for i := range r.AABBs {
-		if contact := r.AABBs[i].RayContact(ray, 0.0, minContact.T); contact.Mode != ContactModeMiss {
-			if contact.T > 0.0 && contact.T < minContact.T {
-				minContact = contact
-			}
-		}
-	}
+	})
+
+	// for i := range r.Spheres {
+	// 	if contact := r.Spheres[i].RayContact(ray, 0.0, minContact.T); contact.Mode != ContactModeMiss {
+	// 		if contact.T > 0.0 && contact.T < minContact.T {
+	// 			minContact = contact
+	// 		}
+	// 	}
+	// }
+	// for i := range r.AABBs {
+	// 	if contact := r.AABBs[i].RayContact(ray, 0.0, minContact.T); contact.Mode != ContactModeMiss {
+	// 		if contact.T > 0.0 && contact.T < minContact.T {
+	// 			minContact = contact
+	// 		}
+	// 	}
+	// }
 
 	if minContact.Mode == ContactModeMiss {
 		// Render a simple horizon at infinity for orientation
@@ -939,117 +965,51 @@ type BVHTree struct {
 	Root *BVHNode
 }
 
+// RayTest fires a ray through the BVH tree, invoking checkSceneElement with the
+// index of any scene element that could be hit.
+func (t *BVHTree) RayTest(ray Ray, checkRef func(ref int)) {
+	workStack := []*BVHNode{t.Root}
+	for len(workStack) != 0 {
+		node := workStack[len(workStack)-1]
+		workStack = workStack[:len(workStack)-1]
+
+		if node == nil {
+			continue
+		}
+
+		// If we didn't hit this node, we don't need to look at it any further.
+		if !node.RayTest(ray) {
+			continue
+		}
+
+		switch node.Type {
+		case BVHNodeTypeConcrete:
+			checkRef(node.Ref)
+		case BVHNodeTypeComposite:
+			workStack = append(workStack, node.LoChild, node.HiChild)
+		}
+	}
+}
+
+type BVHNodeType int
+
+const (
+	BVHNodeTypeConcrete BVHNodeType = iota
+	BVHNodeTypeComposite
+)
+
 type BVHNode struct {
-	Bounds BVHBox
+	Type BVHNodeType
+	Lo   fvec3.T
+	Hi   fvec3.T
 
-	SceneElementRef int
+	Ref int
 
-	Axis    int
 	LoChild *BVHNode
 	HiChild *BVHNode
 }
 
-type BVHElement struct {
-	Bounds          BVHBox
-	SceneElementRef int
-}
-
-// func MakeBVHTree(elements []BVHElement) *BVHTree {
-// 	root := &BVHNode{}
-
-// 	if len(elements) == 0 {
-// 		return &BVHTree{
-// 			Root: root,
-// 		}
-// 	}
-
-// 	// Compute bounding box for this node
-// 	bounds := elements[0].Bounds
-// 	for _, elt := range elements {
-// 		bounds.Lo[0] = min(bounds.Lo[0], elt.Bounds.Lo[0])
-// 		bounds.Lo[1] = min(bounds.Lo[1], elt.Bounds.Lo[1])
-// 		bounds.Lo[2] = min(bounds.Lo[2], elt.Bounds.Lo[2])
-
-// 		bounds.Hi[0] = max(bounds.Hi[0], elt.Bounds.Hi[0])
-// 		bounds.Hi[1] = max(bounds.Hi[1], elt.Bounds.Hi[1])
-// 		bounds.Hi[2] = max(bounds.Hi[2], elt.Bounds.Hi[2])
-// 	}
-// 	root.Bounds = bounds
-
-// 	// Split axis starts on 0 axis.
-// 	root.Axis = 0
-
-// 	// Recursively split elements into hi and low children of the node.
-// 	assembleBVHTree(root, elements)
-
-// 	return &BVHTree{
-// 		Root: root,
-// 	}
-// }
-
-// func assembleBVHTree(root *BVHNode, elements []BVHElement) {
-// 	if len(elements) < 1 {
-// 		panic("precondition failure in assembleBVHTree")
-// 	}
-
-// 	if len(elements) == 1 {
-// 		// Base case.  Make root a concrete node that holds only this elements.
-// 		root.Bounds = elements[0].Bounds
-// 		root.SceneElementRef = elements[0].SceneElementRef
-// 	}
-
-// 	// Recursive case.  Pick a reasonable split and divide elements into a high
-// 	// and low child of the current node.
-
-// 	// Sort all elements according to the split axis.
-// 	slices.SortFunc[[]BVHElement, BVHElement](elements, func(a, b BVHElement) int {
-// 		diff := a.Bounds.Lo[root.Axis] - b.Bounds.Lo[root.Axis]
-// 		switch {
-// 		case diff < 0:
-// 			return -1
-// 		case diff == 0:
-// 			return 0
-// 		default:
-// 			return 1
-// 		}
-// 	})
-
-// 	// Evaluate three random indices for use as the split candidate
-// 	bestSurfaceArea := math32.MaxFloat32
-// 	bestSplitIndex := -1
-// 	for i := 0; i < 3; i++ {
-// 		splitIndex := rand.Intn(len(elements))
-
-// 	}
-
-// 	// Compute bounding box for this node
-// 	bounds := elements[0].Bounds
-// 	for _, elt := range elements {
-// 		bounds.Lo[0] = min(bounds.Lo[0], elt.Bounds.Lo[0])
-// 		bounds.Lo[1] = min(bounds.Lo[1], elt.Bounds.Lo[1])
-// 		bounds.Lo[2] = min(bounds.Lo[2], elt.Bounds.Lo[2])
-
-// 		bounds.Hi[0] = max(bounds.Hi[0], elt.Bounds.Hi[0])
-// 		bounds.Hi[1] = max(bounds.Hi[1], elt.Bounds.Hi[1])
-// 		bounds.Hi[2] = max(bounds.Hi[2], elt.Bounds.Hi[2])
-// 	}
-
-// 	root.Bounds = bounds
-
-// }
-
-// // RayTest fires a ray through the BVH tree, invoking checkSceneElement with the
-// // index of any scene element that could be hit.
-// func (bvh *BVHTree) RayTest(ray Ray, queryLo, queryHi float32, checkSceneElement func(i int) bool) {
-
-// }
-
-type BVHBox struct {
-	Lo fvec3.T
-	Hi fvec3.T
-}
-
-func (b *BVHBox) RayTest(ray Ray, queryLo, queryHi float32) bool {
+func (b *BVHNode) RayTest(ray Ray) bool {
 	tXLo := (b.Lo[0] - ray.Point[0]) / ray.Slope[0]
 	tXHi := (b.Hi[0] - ray.Point[0]) / ray.Slope[0]
 	tYLo := (b.Lo[1] - ray.Point[1]) / ray.Slope[1]
@@ -1106,4 +1066,65 @@ func (b *BVHBox) RayTest(ray Ray, queryLo, queryHi float32) bool {
 	}
 
 	return false
+}
+
+func MakeBVHTree(elements []*BVHNode) *BVHTree {
+	return &BVHTree{
+		Root: assembleBVHTree(elements, 0),
+	}
+}
+
+func assembleBVHTree(elements []*BVHNode, axis int) *BVHNode {
+	// Base case.
+	if len(elements) == 0 {
+		return nil
+	}
+
+	// Base case.  Make root a concrete node that holds only this elements.
+	if len(elements) == 1 {
+		if elements[0].Type != BVHNodeTypeConcrete {
+			panic("composite BVH node passed to assembleBVHTree")
+		}
+		return elements[0]
+	}
+
+	// Recursive case.  Pick a reasonable split and divide elements into a high
+	// and low child of the current node.
+
+	// Sort all elements according to the split axis.
+	slices.SortFunc[[]*BVHNode, *BVHNode](elements, func(a, b *BVHNode) int {
+		diff := a.Lo[axis] - b.Lo[axis]
+		switch {
+		case diff < 0:
+			return -1
+		case diff == 0:
+			return 0
+		default:
+			return 1
+		}
+	})
+
+	// Split in the middle of the list.
+	splitIndex := len(elements) / 2
+	loChild := assembleBVHTree(elements[0:splitIndex], (axis+1)%3)
+	hiChild := assembleBVHTree(elements[splitIndex:], (axis+1)%3)
+
+	boundsLo := fvec3.T{}
+	boundsLo[0] = min(loChild.Lo[0], hiChild.Lo[0])
+	boundsLo[1] = min(loChild.Lo[1], hiChild.Lo[1])
+	boundsLo[2] = min(loChild.Lo[2], hiChild.Lo[2])
+
+	boundsHi := fvec3.T{}
+	boundsHi[0] = max(loChild.Hi[0], hiChild.Hi[0])
+	boundsHi[1] = max(loChild.Hi[1], hiChild.Hi[1])
+	boundsHi[2] = max(loChild.Hi[2], hiChild.Hi[2])
+
+	return &BVHNode{
+		Type: BVHNodeTypeComposite,
+		Lo:   boundsLo,
+		Hi:   boundsHi,
+
+		LoChild: loChild,
+		HiChild: hiChild,
+	}
 }
