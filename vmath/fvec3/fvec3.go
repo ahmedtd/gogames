@@ -6,7 +6,7 @@ import (
 	"github.com/barnex/fmath"
 )
 
-type T [3]float32
+type T [4]float32
 
 func (v T) Norm() float32 {
 	return fmath.Sqrt(v[0]*v[0] + v[1]*v[1] + v[2]*v[2])

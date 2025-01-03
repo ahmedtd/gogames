@@ -247,6 +247,20 @@ func (r *Renderer) Update() error {
 			time.Sleep(10 * time.Second)
 		}()
 	}
+	if inpututil.IsKeyJustPressed(ebiten.KeyF4) {
+		go func() {
+			f, err := os.Create("renderino-alloc-profile")
+			if err != nil {
+				log.Printf("Error while opening profile output: %v", err)
+				return
+			}
+			defer f.Close()
+
+			if err := pprof.Lookup("allocs").WriteTo(f, 0); err != nil {
+				log.Printf("Error while writing alloc profile: %v", err)
+			}
+		}()
+	}
 
 	r.LatestWorldState.CursorX, r.LatestWorldState.CursorY = ebiten.CursorPosition()
 
@@ -970,11 +984,14 @@ type PointLight struct {
 type BVHTree struct {
 	Root *BVHNode
 
-	FreeList []*BVHNode
+	FreeList                  []*BVHNode
+	AllocationsSinceLastClear int
 }
 
 // Clear moves all nodes from the tree to the free list.
 func (t *BVHTree) Clear() {
+	//freeListLenBeforeClear := len(t.FreeList)
+
 	workStack := []*BVHNode{t.Root}
 	for len(workStack) != 0 {
 		cur := workStack[len(workStack)-1]
@@ -984,19 +1001,22 @@ func (t *BVHTree) Clear() {
 			continue
 		}
 
+		workStack = append(workStack, cur.LoChild)
+		workStack = append(workStack, cur.HiChild)
 		*cur = BVHNode{}
 
 		t.FreeList = append(t.FreeList, cur)
-
-		workStack = append(workStack, cur.LoChild)
-		workStack = append(workStack, cur.HiChild)
 	}
+
+	//log.Printf("allocationsSinceLastClear=%d freeListLenBefore=%d freeListLenAfter=%d", t.AllocationsSinceLastClear, freeListLenBeforeClear, len(t.FreeList))
+	t.AllocationsSinceLastClear = 0
 
 	t.Root = nil
 }
 
 func (t *BVHTree) GetFreeNode() *BVHNode {
 	if len(t.FreeList) == 0 {
+		t.AllocationsSinceLastClear++
 		return &BVHNode{}
 	}
 
@@ -1082,10 +1102,10 @@ func (b *BVHNode) RayTest(point, inverseSlope fvec3.T) bool {
 }
 
 func (t *BVHTree) BuildFromElements(elements []*BVHNode) {
-	t.Root = assembleBVHTree(elements, 0)
+	t.Root = t.assembleBVHTree(elements, 0)
 }
 
-func assembleBVHTree(elements []*BVHNode, axis int) *BVHNode {
+func (t *BVHTree) assembleBVHTree(elements []*BVHNode, axis int) *BVHNode {
 	// Base case.
 	if len(elements) == 0 {
 		return nil
@@ -1117,8 +1137,8 @@ func assembleBVHTree(elements []*BVHNode, axis int) *BVHNode {
 
 	// Split in the middle of the list.
 	splitIndex := len(elements) / 2
-	loChild := assembleBVHTree(elements[0:splitIndex], (axis+1)%3)
-	hiChild := assembleBVHTree(elements[splitIndex:], (axis+1)%3)
+	loChild := t.assembleBVHTree(elements[0:splitIndex], (axis+1)%3)
+	hiChild := t.assembleBVHTree(elements[splitIndex:], (axis+1)%3)
 
 	boundsLo := fvec3.T{}
 	boundsLo[0] = min(loChild.Lo[0], hiChild.Lo[0])
@@ -1130,12 +1150,12 @@ func assembleBVHTree(elements []*BVHNode, axis int) *BVHNode {
 	boundsHi[1] = max(loChild.Hi[1], hiChild.Hi[1])
 	boundsHi[2] = max(loChild.Hi[2], hiChild.Hi[2])
 
-	return &BVHNode{
-		Type: BVHNodeTypeComposite,
-		Lo:   boundsLo,
-		Hi:   boundsHi,
+	node := t.GetFreeNode()
+	node.Type = BVHNodeTypeComposite
+	node.Lo = boundsLo
+	node.Hi = boundsHi
+	node.LoChild = loChild
+	node.HiChild = hiChild
 
-		LoChild: loChild,
-		HiChild: hiChild,
-	}
+	return node
 }
