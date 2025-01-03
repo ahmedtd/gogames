@@ -18,6 +18,7 @@ import (
 	"net/http"
 	_ "net/http/pprof"
 	"os"
+	"runtime/pprof"
 	"slices"
 	"sync"
 	"time"
@@ -186,9 +187,9 @@ func NewRenderer(numRenderThreads int) (*Renderer, error) {
 	previousWorldState.NextBoidTargetSwitchTime = 10.0
 	previousWorldState.BoidTarget = fvec3.UniformSphereDistribution(rng, 100.0)
 	previousWorldState.BoidTarget[2] = 0
-	previousWorldState.BoidPositions = make([]fvec3.T, 200)
-	previousWorldState.BoidVelocities = make([]fvec3.T, 200)
-	for i := 0; i < 200; i++ {
+	previousWorldState.BoidPositions = make([]fvec3.T, 1000)
+	previousWorldState.BoidVelocities = make([]fvec3.T, 1000)
+	for i := 0; i < 1000; i++ {
 		previousWorldState.BoidPositions[i] = fvec3.UniformSphereDistribution(rng, 100.0)
 		previousWorldState.BoidPositions[i][2] = 0
 		previousWorldState.BoidVelocities[i] = fvec3.UniformSphereDistribution(rng, 1.0)
@@ -228,6 +229,23 @@ func (r *Renderer) Update() error {
 	}
 	if inpututil.IsKeyJustPressed(ebiten.KeyEqual) {
 		r.curUpscaleFactor += 0.25
+	}
+	if inpututil.IsKeyJustPressed(ebiten.KeyF3) {
+		go func() {
+			f, err := os.Create("renderino-cpu-profile")
+			if err != nil {
+				log.Printf("Error while opening profile output: %v", err)
+				return
+			}
+			defer f.Close()
+
+			if err := pprof.StartCPUProfile(f); err != nil {
+				log.Printf("Error while starting CPU profile: %v", err)
+				return
+			}
+			defer pprof.StopCPUProfile()
+			time.Sleep(10 * time.Second)
+		}()
 	}
 
 	r.LatestWorldState.CursorX, r.LatestWorldState.CursorY = ebiten.CursorPosition()
@@ -377,17 +395,20 @@ func (r *Renderer) Update() error {
 	}
 
 	// Build tree
+	if r.LatestRenderState.Tree == nil {
+		r.LatestRenderState.Tree = &BVHTree{}
+	}
+	r.LatestRenderState.Tree.Clear()
 	nodes := []*BVHNode{}
 	for i := 0; i < len(r.LatestRenderState.AABBs); i++ {
-		node := &BVHNode{
-			Type: BVHNodeTypeConcrete,
-			Lo:   r.LatestRenderState.AABBs[i].Lo,
-			Hi:   r.LatestRenderState.AABBs[i].Hi,
-			Ref:  i,
-		}
+		node := r.LatestRenderState.Tree.GetFreeNode()
+		node.Type = BVHNodeTypeConcrete
+		node.Lo = r.LatestRenderState.AABBs[i].Lo
+		node.Hi = r.LatestRenderState.AABBs[i].Hi
+		node.Ref = i
 		nodes = append(nodes, node)
 	}
-	r.LatestRenderState.Tree = MakeBVHTree(nodes)
+	r.LatestRenderState.Tree.BuildFromElements(nodes)
 
 	r.PreviousWorldState, r.LatestWorldState = r.LatestWorldState, r.PreviousWorldState
 
@@ -588,21 +609,6 @@ func (r *RenderState) RenderPixel(px, py, wx, wy int) RGBPower {
 			}
 		}
 	})
-
-	// for i := range r.Spheres {
-	// 	if contact := r.Spheres[i].RayContact(ray, 0.0, minContact.T); contact.Mode != ContactModeMiss {
-	// 		if contact.T > 0.0 && contact.T < minContact.T {
-	// 			minContact = contact
-	// 		}
-	// 	}
-	// }
-	// for i := range r.AABBs {
-	// 	if contact := r.AABBs[i].RayContact(ray, 0.0, minContact.T); contact.Mode != ContactModeMiss {
-	// 		if contact.T > 0.0 && contact.T < minContact.T {
-	// 			minContact = contact
-	// 		}
-	// 	}
-	// }
 
 	if minContact.Mode == ContactModeMiss {
 		// Render a simple horizon at infinity for orientation
@@ -963,12 +969,48 @@ type PointLight struct {
 
 type BVHTree struct {
 	Root *BVHNode
+
+	FreeList []*BVHNode
+}
+
+// Clear moves all nodes from the tree to the free list.
+func (t *BVHTree) Clear() {
+	workStack := []*BVHNode{t.Root}
+	for len(workStack) != 0 {
+		cur := workStack[len(workStack)-1]
+		workStack = workStack[:len(workStack)-1]
+
+		if cur == nil {
+			continue
+		}
+
+		*cur = BVHNode{}
+
+		t.FreeList = append(t.FreeList, cur)
+
+		workStack = append(workStack, cur.LoChild)
+		workStack = append(workStack, cur.HiChild)
+	}
+
+	t.Root = nil
+}
+
+func (t *BVHTree) GetFreeNode() *BVHNode {
+	if len(t.FreeList) == 0 {
+		return &BVHNode{}
+	}
+
+	picked := t.FreeList[len(t.FreeList)-1]
+	t.FreeList = t.FreeList[:len(t.FreeList)-1]
+
+	return picked
 }
 
 // RayTest fires a ray through the BVH tree, invoking checkSceneElement with the
 // index of any scene element that could be hit.
 func (t *BVHTree) RayTest(ray Ray, checkRef func(ref int)) {
-	workStack := []*BVHNode{t.Root}
+	workStack := make([]*BVHNode, 0, 32)
+	workStack = append(workStack, t.Root)
 	for len(workStack) != 0 {
 		node := workStack[len(workStack)-1]
 		workStack = workStack[:len(workStack)-1]
@@ -1068,10 +1110,8 @@ func (b *BVHNode) RayTest(ray Ray) bool {
 	return false
 }
 
-func MakeBVHTree(elements []*BVHNode) *BVHTree {
-	return &BVHTree{
-		Root: assembleBVHTree(elements, 0),
-	}
+func (t *BVHTree) BuildFromElements(elements []*BVHNode) {
+	t.Root = assembleBVHTree(elements, 0)
 }
 
 func assembleBVHTree(elements []*BVHNode, axis int) *BVHNode {
