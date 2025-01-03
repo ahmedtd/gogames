@@ -114,8 +114,7 @@ type Renderer struct {
 
 	// If the framerate is too low, UpscaleFactor will be used to drop the
 	// amount of work the raytracer has to do.
-	curUpscaleFactor        float64
-	upscaleTuningIntegrator float64
+	curUpscaleFactor float64
 
 	renderGroup *errgroup.Group
 
@@ -313,22 +312,21 @@ func (r *Renderer) Update() error {
 			}
 
 			offset := fvec3.SubVV(r.PreviousWorldState.BoidPositions[i], r.PreviousWorldState.BoidPositions[j])
+			separationDistanceSquared := offset[0]*offset[0] + offset[1]*offset[1] + offset[2]*offset[2]
 
-			separationHeading := fvec3.Normalize(offset)
-			separationDistance := offset.Norm()
-
-			if separationDistance < 3.0 {
+			if separationDistanceSquared < 9.0 {
 				numCohesionInfluencers++
 				averagePositionOfNeighbors = fvec3.AddVV(averagePositionOfNeighbors, r.PreviousWorldState.BoidPositions[j])
 			}
 
-			if separationDistance < 6.0 {
+			if separationDistanceSquared < 36.0 {
 				numAlignmentInfluencers++
 				averageVelocityOfNeighbors = fvec3.AddVV(averageVelocityOfNeighbors, r.PreviousWorldState.BoidVelocities[j])
 			}
 
-			if separationDistance < 2.0 {
-				totalSeparationForce = fvec3.AddVV(totalSeparationForce, fvec3.MulVS(separationHeading, 100.0/(1.0+separationDistance*separationDistance)))
+			if separationDistanceSquared < 4.0 {
+				separationHeading := fvec3.Normalize(offset)
+				totalSeparationForce = fvec3.AddVV(totalSeparationForce, fvec3.MulVS(separationHeading, 100.0/(1.0+separationDistanceSquared)))
 			}
 		}
 
