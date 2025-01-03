@@ -1009,6 +1009,12 @@ func (t *BVHTree) GetFreeNode() *BVHNode {
 // RayTest fires a ray through the BVH tree, invoking checkSceneElement with the
 // index of any scene element that could be hit.
 func (t *BVHTree) RayTest(ray Ray, checkRef func(ref int)) {
+	inverseSlope := fvec3.T{
+		1.0 / ray.Slope[0],
+		1.0 / ray.Slope[1],
+		1.0 / ray.Slope[2],
+	}
+
 	workStack := make([]*BVHNode, 0, 32)
 	workStack = append(workStack, t.Root)
 	for len(workStack) != 0 {
@@ -1020,7 +1026,7 @@ func (t *BVHTree) RayTest(ray Ray, checkRef func(ref int)) {
 		}
 
 		// If we didn't hit this node, we don't need to look at it any further.
-		if !node.RayTest(ray) {
+		if !node.RayTest(ray.Point, inverseSlope) {
 			continue
 		}
 
@@ -1051,63 +1057,28 @@ type BVHNode struct {
 	HiChild *BVHNode
 }
 
-func (b *BVHNode) RayTest(ray Ray) bool {
-	tXLo := (b.Lo[0] - ray.Point[0]) / ray.Slope[0]
-	tXHi := (b.Hi[0] - ray.Point[0]) / ray.Slope[0]
-	tYLo := (b.Lo[1] - ray.Point[1]) / ray.Slope[1]
-	tYHi := (b.Hi[1] - ray.Point[1]) / ray.Slope[1]
-	tZLo := (b.Lo[2] - ray.Point[2]) / ray.Slope[2]
-	tZHi := (b.Hi[2] - ray.Point[2]) / ray.Slope[2]
+func (b *BVHNode) RayTest(point, inverseSlope fvec3.T) bool {
+	// https://tavianator.com/2011/ray_box.html
 
-	// Is our contact with the X-Low plane actually on the box?
-	pXLoX := b.Lo[0]
-	pXLoY := ray.Point[1] + ray.Slope[1]*tXLo
-	pXLoZ := ray.Point[2] + ray.Slope[2]*tXLo
-	if onBox(pXLoX, pXLoY, pXLoZ, b.Lo[0], b.Hi[0], b.Lo[1], b.Hi[1], b.Lo[2], b.Hi[2]) {
-		return true
-	}
+	tx1 := (b.Lo[0] - point[0]) * inverseSlope[0]
+	tx2 := (b.Hi[0] - point[0]) * inverseSlope[0]
 
-	// Is our contact with the X-High plane actually on the box?
-	pXHiX := b.Hi[0]
-	pXHiY := ray.Point[1] + ray.Slope[1]*tXHi
-	pXHiZ := ray.Point[2] + ray.Slope[2]*tXHi
-	if onBox(pXHiX, pXHiY, pXHiZ, b.Lo[0], b.Hi[0], b.Lo[1], b.Hi[1], b.Lo[2], b.Hi[2]) {
-		return true
-	}
+	tMin := min(tx1, tx2)
+	tMax := max(tx1, tx2)
 
-	// Is our contact with the Y-Low plane actually on the box?
-	pYLoX := ray.Point[0] + ray.Slope[0]*tYLo
-	pYLoY := b.Lo[1]
-	pYLoZ := ray.Point[2] + ray.Slope[2]*tYLo
-	if onBox(pYLoX, pYLoY, pYLoZ, b.Lo[0], b.Hi[0], b.Lo[1], b.Hi[1], b.Lo[2], b.Hi[2]) {
-		return true
-	}
+	ty1 := (b.Lo[1] - point[1]) * inverseSlope[1]
+	ty2 := (b.Hi[1] - point[1]) * inverseSlope[1]
 
-	// Is our contact with the Y-High plane actually on the box?
-	pYHiX := ray.Point[0] + ray.Slope[0]*tYHi
-	pYHiY := b.Hi[1]
-	pYHiZ := ray.Point[2] + ray.Slope[2]*tYHi
-	if onBox(pYHiX, pYHiY, pYHiZ, b.Lo[0], b.Hi[0], b.Lo[1], b.Hi[1], b.Lo[2], b.Hi[2]) {
-		return true
-	}
+	tMin = max(tMin, min(ty1, ty2))
+	tMax = min(tMax, max(ty1, ty2))
 
-	// Is our contact with the Z-Low plane actually on the box?
-	pZLoX := ray.Point[0] + ray.Slope[0]*tZLo
-	pZLoY := ray.Point[1] + ray.Slope[1]*tZLo
-	pZLoZ := b.Lo[2]
-	if onBox(pZLoX, pZLoY, pZLoZ, b.Lo[0], b.Hi[0], b.Lo[1], b.Hi[1], b.Lo[2], b.Hi[2]) {
-		return true
-	}
+	tz1 := (b.Lo[2] - point[2]) * inverseSlope[2]
+	tz2 := (b.Hi[2] - point[2]) * inverseSlope[2]
 
-	// Is our contact with the Z-High plane actually on the box?
-	pZHiX := ray.Point[0] + ray.Slope[0]*tZHi
-	pZHiY := ray.Point[1] + ray.Slope[1]*tZHi
-	pZHiZ := b.Hi[2]
-	if onBox(pZHiX, pZHiY, pZHiZ, b.Lo[0], b.Hi[0], b.Lo[1], b.Hi[1], b.Lo[2], b.Hi[2]) {
-		return true
-	}
+	tMin = max(tMin, min(tz1, tz2))
+	tMax = min(tMax, max(tz1, tz2))
 
-	return false
+	return tMin <= tMax
 }
 
 func (t *BVHTree) BuildFromElements(elements []*BVHNode) {
