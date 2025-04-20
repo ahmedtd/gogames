@@ -1,7 +1,6 @@
 package tilesheet
 
 import (
-	_ "embed"
 	"image"
 	"shellworld/vmath/mat33"
 	"shellworld/vmath/vec2"

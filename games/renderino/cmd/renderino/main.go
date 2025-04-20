@@ -687,16 +687,10 @@ type PinholeCamera struct {
 }
 
 func (c *PinholeCamera) PixelToRay(px, py, w, h int /*, rng *rand.Rand*/) Ray {
-	imageCoords := fvec3.T{
-		1.0,
-		1.0 - float32(2)*(float32(px) /*-rng.Float32()*/)/float32(w),
-		1.0 - float32(2)*(float32(py) /*-rng.Float32()*/)/float32(h),
-	}
-
 	apertureCoords := fvec3.T{
-		imageCoords[0] * c.Aperture[0],
-		imageCoords[1] * c.Aperture[1],
-		imageCoords[2] * c.Aperture[2],
+		c.Aperture[0],
+		(1.0 - 2.0*float32(px)/float32(w)) * c.Aperture[1],
+		(1.0 - 2.0*float32(py)/float32(h)),
 	}
 
 	return Ray{
