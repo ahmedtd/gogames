@@ -1,6 +1,9 @@
 package vec2
 
-import "math"
+import (
+	"math"
+	"math/rand/v2"
+)
 
 type T [2]float64
 
@@ -36,4 +39,17 @@ func MulSV(s float64, a T) T {
 
 func Dot(a, b T) float64 {
 	return a[0]*b[0] + a[1]*b[1]
+}
+
+func UniformDiskDistribution(rng *rand.Rand, radius float64) T {
+	result := T{}
+	for {
+		result[0] = 2 * radius * (rng.Float64() - 0.5)
+		result[1] = 2 * radius * (rng.Float64() - 0.5)
+		normSquared := result[0]*result[0] + result[1]*result[1]
+		if normSquared <= radius*radius && normSquared != 0.0 {
+			break
+		}
+	}
+	return result
 }

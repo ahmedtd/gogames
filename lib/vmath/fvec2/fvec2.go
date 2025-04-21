@@ -1,6 +1,10 @@
 package fvec2
 
-import "github.com/barnex/fmath"
+import (
+	"math/rand/v2"
+
+	"github.com/barnex/fmath"
+)
 
 type T [2]float32
 
@@ -36,4 +40,17 @@ func MulSV(s float32, a T) T {
 
 func Dot(a, b T) float32 {
 	return a[0]*b[0] + a[1]*b[1]
+}
+
+func UniformDiskDistribution(rng *rand.Rand, radius float32) T {
+	result := T{}
+	for {
+		result[0] = 2 * radius * (rng.Float32() - 0.5)
+		result[1] = 2 * radius * (rng.Float32() - 0.5)
+		normSquared := result[0]*result[0] + result[1]*result[1]
+		if normSquared <= radius*radius && normSquared != 0.0 {
+			break
+		}
+	}
+	return result
 }

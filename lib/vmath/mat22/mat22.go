@@ -14,7 +14,7 @@ func Identity() T {
 func Rotate(theta float64) T {
 	c := math.Cos(theta)
 	s := math.Sin(theta)
-	return T{c, s, -s, c}
+	return T{c, -s, s, c}
 }
 
 func MulMM(a, b T) T {

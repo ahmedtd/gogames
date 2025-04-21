@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"image/color"
 	"log"
+	"math/rand/v2"
 	"shellworld/embeddedassets/simplespacespritesheet"
 	"shellworld/lib/vmath/mat22"
 	"shellworld/lib/vmath/mat33"
@@ -31,6 +32,12 @@ func do() error {
 	initialWorldState := &WorldState{}
 	initialWorldState.ShipPosition = vec2.T{}
 	initialWorldState.ShipOrientation = mat22.Rotate(0)
+
+	rng := rand.New(rand.NewChaCha8([32]byte{}))
+	for i := 0; i < 30; i++ {
+		initialWorldState.AsteroidPositions = append(initialWorldState.AsteroidPositions, vec2.UniformDiskDistribution(rng, 10))
+	}
+
 	initialWorldState.Viewport = Viewport{
 		Center:             vec2.T{0.0, 0.0},
 		Angle:              0.0,
@@ -126,6 +133,8 @@ type WorldState struct {
 	ShipVelocity    vec2.T
 	ShipOrientation mat22.T
 
+	AsteroidPositions []vec2.T
+
 	Viewport Viewport
 }
 
@@ -137,6 +146,7 @@ func (w *WorldState) Clone() *WorldState {
 	out.ShipPosition = w.ShipPosition
 	out.ShipVelocity = w.ShipVelocity
 	out.ShipOrientation = w.ShipOrientation
+	out.AsteroidPositions = w.AsteroidPositions
 	out.Viewport = w.Viewport
 	return out
 }
