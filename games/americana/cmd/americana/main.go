@@ -12,8 +12,8 @@ import (
 	"log"
 	"time"
 
-	"shellworld/americana/embeddedassets/medievaltilesheet"
-	"shellworld/americana/world/world"
+	"shellworld/games/americana/embeddedassets/medievaltilesheet"
+	"shellworld/games/americana/world/world"
 	"shellworld/lib/resource/imagestamp"
 	"shellworld/lib/resource/loader"
 	"shellworld/lib/resource/tilesheet"
