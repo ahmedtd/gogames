@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"log"
 
+	"shellworld/games/sandgrid/renderer"
+	"shellworld/games/sandgrid/world"
 	"shellworld/resource/loader"
-	"shellworld/sandgrid/renderer"
-	"shellworld/sandgrid/world"
 
 	"github.com/hajimehoshi/ebiten/v2"
 )
@@ -20,7 +20,7 @@ import (
 //     go run ./sandgrid/cmd/sandgrid
 
 var (
-	assetDir = flag.String("asset-dir", "./sandgrid/rawassets", "Asset directory to use.")
+	assetDir = flag.String("asset-dir", "./games/sandgrid/rawassets", "Asset directory to use.")
 )
 
 func main() {

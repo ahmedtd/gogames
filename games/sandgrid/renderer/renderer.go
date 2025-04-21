@@ -5,9 +5,9 @@ import (
 	"log"
 	"time"
 
+	"shellworld/games/sandgrid/world"
 	"shellworld/resource/imagestamp"
 	"shellworld/resource/loader"
-	"shellworld/sandgrid/world"
 	"shellworld/vmath/vec2"
 
 	"github.com/hajimehoshi/ebiten/v2"

@@ -96,6 +96,7 @@ func (l *ResourceLoader) callImageStamp(t *starlark.Thread, fn *starlark.Builtin
 		return nil, fmt.Errorf("while getting relative path of resource file: %w", err)
 	}
 	resourceDir, _ := filepath.Split(resourceFilePath)
+	resourceDir = filepath.ToSlash(resourceDir)
 	resourceDir = strings.TrimSuffix(resourceDir, "/")
 	resourceIdentifier := fmt.Sprintf("//%s:%s", resourceDir, name)
 
