@@ -1,8 +1,8 @@
 package fmat33
 
 import (
-	"shellworld/vmath/fvec2"
-	"shellworld/vmath/fvec3"
+	"shellworld/lib/vmath/fvec2"
+	"shellworld/lib/vmath/fvec3"
 
 	"github.com/barnex/fmath"
 )

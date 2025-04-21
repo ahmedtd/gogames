@@ -7,8 +7,8 @@ import (
 	"sync"
 	"time"
 
-	"shellworld/vmath/mat33"
-	"shellworld/vmath/vec2"
+	"shellworld/lib/vmath/mat33"
+	"shellworld/lib/vmath/vec2"
 )
 
 type RenderState struct {

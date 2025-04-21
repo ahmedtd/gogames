@@ -2,8 +2,8 @@ package tilesheet
 
 import (
 	"image"
-	"shellworld/vmath/mat33"
-	"shellworld/vmath/vec2"
+	"shellworld/lib/vmath/mat33"
+	"shellworld/lib/vmath/vec2"
 
 	"github.com/hajimehoshi/ebiten/v2"
 )

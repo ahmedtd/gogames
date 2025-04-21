@@ -6,9 +6,9 @@ import (
 	"image/color"
 	"log"
 	"shellworld/embeddedassets/simplespacespritesheet"
-	"shellworld/vmath/mat22"
-	"shellworld/vmath/mat33"
-	"shellworld/vmath/vec2"
+	"shellworld/lib/vmath/mat22"
+	"shellworld/lib/vmath/mat33"
+	"shellworld/lib/vmath/vec2"
 	"time"
 
 	"github.com/hajimehoshi/ebiten/v2"

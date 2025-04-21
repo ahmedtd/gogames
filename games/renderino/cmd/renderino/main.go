@@ -24,9 +24,9 @@ import (
 	"time"
 
 	"shellworld/games/renderino/resources"
-	"shellworld/vmath/faffinetransform3"
-	"shellworld/vmath/fmat33"
-	"shellworld/vmath/fvec3"
+	"shellworld/lib/vmath/faffinetransform3"
+	"shellworld/lib/vmath/fmat33"
+	"shellworld/lib/vmath/fvec3"
 
 	"github.com/barnex/fmath"
 	"github.com/google/subcommands"

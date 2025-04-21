@@ -1,9 +1,9 @@
 package faffinetransform3
 
 import (
-	"shellworld/vmath/fmat33"
-	"shellworld/vmath/fmat44"
-	"shellworld/vmath/fvec3"
+	"shellworld/lib/vmath/fmat33"
+	"shellworld/lib/vmath/fmat44"
+	"shellworld/lib/vmath/fvec3"
 
 	"github.com/barnex/fmath"
 )

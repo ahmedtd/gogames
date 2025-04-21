@@ -2,7 +2,7 @@ package spritesheet
 
 import (
 	"image"
-	"shellworld/vmath/mat33"
+	"shellworld/lib/vmath/mat33"
 
 	"github.com/hajimehoshi/ebiten/v2"
 )

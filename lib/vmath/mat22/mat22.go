@@ -2,7 +2,7 @@ package mat22
 
 import (
 	"math"
-	"shellworld/vmath/vec2"
+	"shellworld/lib/vmath/vec2"
 )
 
 type T [4]float64
