@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"image/png"
 
-	"shellworld/resource/tilesheet"
+	"shellworld/lib/resource/tilesheet"
 
 	"github.com/hajimehoshi/ebiten/v2"
 )

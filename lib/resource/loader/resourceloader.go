@@ -6,8 +6,8 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"shellworld/lib/resource/imagestamp"
 	"shellworld/lib/vmath/vec2"
-	"shellworld/resource/imagestamp"
 	"strings"
 	"sync"
 

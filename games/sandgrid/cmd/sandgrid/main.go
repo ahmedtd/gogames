@@ -8,7 +8,7 @@ import (
 
 	"shellworld/games/sandgrid/renderer"
 	"shellworld/games/sandgrid/world"
-	"shellworld/resource/loader"
+	"shellworld/lib/resource/loader"
 
 	"github.com/hajimehoshi/ebiten/v2"
 )

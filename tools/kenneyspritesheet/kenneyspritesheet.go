@@ -80,7 +80,7 @@ import (
 	_ "embed"
 	"fmt"
 	"image/png"
-	"shellworld/resource/spritesheet"
+	"shellworld/lib/resource/spritesheet"
 
 	"github.com/hajimehoshi/ebiten/v2"
 )

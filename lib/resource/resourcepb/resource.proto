@@ -1,6 +1,6 @@
 syntax = "proto3";
 
-option go_package = "shellworld/americana/resource/resourcepb";
+option go_package = "shellworld/americana/lib/resource/resourcepb";
 
 message Resource {
     oneof {

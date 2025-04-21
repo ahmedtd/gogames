@@ -14,10 +14,10 @@ import (
 
 	"shellworld/americana/embeddedassets/medievaltilesheet"
 	"shellworld/americana/world/world"
+	"shellworld/lib/resource/imagestamp"
+	"shellworld/lib/resource/loader"
+	"shellworld/lib/resource/tilesheet"
 	"shellworld/lib/vmath/vec2"
-	"shellworld/resource/imagestamp"
-	"shellworld/resource/loader"
-	"shellworld/resource/tilesheet"
 
 	"github.com/hajimehoshi/ebiten/v2"
 )
