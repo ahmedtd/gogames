@@ -23,7 +23,7 @@ import (
 	"sync"
 	"time"
 
-	"shellworld/games/renderino/resources"
+	"shellworld/embeddedassets/departuremonofont"
 	"shellworld/lib/vmath/faffinetransform3"
 	"shellworld/lib/vmath/fmat33"
 	"shellworld/lib/vmath/fvec3"
@@ -149,7 +149,7 @@ func NewRenderer(numRenderThreads int) (*Renderer, error) {
 	renderGroup := &errgroup.Group{}
 	renderGroup.SetLimit(numRenderThreads)
 
-	uiFaceSource, err := text.NewGoTextFaceSource(bytes.NewReader(resources.DepartureMonoOTF))
+	uiFaceSource, err := text.NewGoTextFaceSource(bytes.NewReader(departuremonofont.DepartureMonoOTF))
 	if err != nil {
 		return nil, fmt.Errorf("while loading Departure Mono font: %w", err)
 	}

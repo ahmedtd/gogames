@@ -1,4 +1,4 @@
-package resources
+package departuremonofont
 
 import _ "embed"
 
