@@ -3,6 +3,7 @@ package mat33
 import (
 	"math"
 
+	"shellworld/lib/vmath/mat22"
 	"shellworld/lib/vmath/vec2"
 	"shellworld/lib/vmath/vec3"
 )
@@ -11,6 +12,14 @@ type T [9]float64
 
 func Identity() T {
 	return T{1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0}
+}
+
+func Transform2(orientation mat22.T, offset vec2.T) T {
+	return T{
+		orientation[0], orientation[1], offset[0],
+		orientation[2], orientation[3], offset[1],
+		0, 0, 1,
+	}
 }
 
 func Rotate2(angle float64) T {
@@ -152,7 +161,7 @@ func SolveInplace(m, a *T) {
 }
 
 func Inverse(m T) T {
-	a := T{1, 0, 0, 0, 1, 0, 0, 0, 1}
+	a := Identity()
 	SolveInplace(&m, &a)
 	return a
 }
