@@ -80,7 +80,7 @@ func (r *Renderer) Draw(screen *ebiten.Image) {
 		switch ent.Type {
 		case EntityTypeTree:
 			modelToWorld := mat33.Transform2(1.0/64.0, ent.Orientation, ent.Position)
-			kenneyrtsmedievalspritesheet.Sheet.RenderAtWorldPosition(screen, kenneyrtsmedievalspritesheet.BLUE_MAN, worldToScreen, modelToWorld)
+			kenneyrtsmedievalspritesheet.Sheet.RenderAtWorldPosition(screen, kenneyrtsmedievalspritesheet.MEDIEVALUNIT_07, worldToScreen, modelToWorld)
 		}
 
 		if ent.Type != EntityTypeInvalid {

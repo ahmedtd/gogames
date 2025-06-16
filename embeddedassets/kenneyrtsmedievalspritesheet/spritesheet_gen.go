@@ -933,53 +933,53 @@ var BLUE_MAN = &spritesheet.AtlasEntry{
 	Y:       96,
 	Width:   33,
 	Height:  48,
-	CenterX: 17,
-	CenterY: 40,
+	CenterX: 16,
+	CenterY: 44,
 }
 
-var MEDIEVALUNIT_02 = &spritesheet.AtlasEntry{
+var BLUE_CLERIC = &spritesheet.AtlasEntry{
 	X:       909,
 	Y:       120,
 	Width:   41,
 	Height:  52,
-	CenterX: 0,
-	CenterY: 0,
+	CenterX: 16,
+	CenterY: 52,
 }
 
-var MEDIEVALUNIT_03 = &spritesheet.AtlasEntry{
+var BLUE_SPEARMAN = &spritesheet.AtlasEntry{
 	X:       1030,
 	Y:       794,
 	Width:   36,
 	Height:  50,
-	CenterX: 0,
-	CenterY: 0,
+	CenterX: 16,
+	CenterY: 50,
 }
 
-var MEDIEVALUNIT_04 = &spritesheet.AtlasEntry{
+var BLUE_HALBERDIER = &spritesheet.AtlasEntry{
 	X:       1026,
 	Y:       464,
 	Width:   40,
 	Height:  50,
-	CenterX: 0,
-	CenterY: 0,
+	CenterX: 16,
+	CenterY: 50,
 }
 
-var MEDIEVALUNIT_05 = &spritesheet.AtlasEntry{
+var BLUE_KING = &spritesheet.AtlasEntry{
 	X:       1066,
 	Y:       794,
 	Width:   33,
 	Height:  48,
-	CenterX: 0,
-	CenterY: 0,
+	CenterX: 16,
+	CenterY: 48,
 }
 
-var MEDIEVALUNIT_06 = &spritesheet.AtlasEntry{
+var RED_WOMAN = &spritesheet.AtlasEntry{
 	X:       1058,
 	Y:       994,
 	Width:   33,
 	Height:  48,
-	CenterX: 0,
-	CenterY: 0,
+	CenterX: 16,
+	CenterY: 48,
 }
 
 var MEDIEVALUNIT_07 = &spritesheet.AtlasEntry{
