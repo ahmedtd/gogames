@@ -235,7 +235,7 @@ type Viewport struct {
 }
 
 func (v *Viewport) WorldToScreenMatrix() mat33.T {
-	worldToViewport := mat33.Inverse(mat33.Transform2(v.Orientation, v.Center))
+	worldToViewport := mat33.Inverse(mat33.Transform2(1.0, v.Orientation, v.Center))
 	worldToViewport = mat33.MulMM(mat33.Scale(v.PixelsPerWorldUnit), worldToViewport)
 
 	vpToScreen := mat33.Scale2(1.0, -1.0)

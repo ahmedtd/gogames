@@ -63,6 +63,7 @@ func do() error {
 
 	formattedSource, err := format.Source(rawSource.Bytes())
 	if err != nil {
+		log.Printf("raw source:\n%s", rawSource)
 		return fmt.Errorf("while formatting raw source: %w", err)
 	}
 
@@ -91,6 +92,8 @@ var {{.CodeName}} = &spritesheet.AtlasEntry{
 	Y:      {{.Y}},
 	Width:  {{.Width}},
 	Height: {{.Height}},
+	CenterX: {{.CenterX}},
+	CenterY: {{.CenterY}},
 }
 {{end}}
 
@@ -124,9 +127,11 @@ type xmlTextureAtlas struct {
 
 type xmlSubTexture struct {
 	CodeName string
-	Name     string `xml:"name,attr"`
-	X        int    `xml:"x,attr"`
-	Y        int    `xml:"y,attr"`
-	Width    int    `xml:"width,attr"`
-	Height   int    `xml:"height,attr"`
+	Name     string  `xml:"name,attr"`
+	X        int     `xml:"x,attr"`
+	Y        int     `xml:"y,attr"`
+	Width    int     `xml:"width,attr"`
+	Height   int     `xml:"height,attr"`
+	CenterX  float32 `xml:"centerx,attr"`
+	CenterY  float32 `xml:"centery,attr"`
 }

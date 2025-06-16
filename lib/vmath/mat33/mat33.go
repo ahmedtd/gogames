@@ -14,10 +14,10 @@ func Identity() T {
 	return T{1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0}
 }
 
-func Transform2(orientation mat22.T, offset vec2.T) T {
+func Transform2(scale float64, orientation mat22.T, offset vec2.T) T {
 	return T{
-		orientation[0], orientation[1], offset[0],
-		orientation[2], orientation[3], offset[1],
+		orientation[0] * scale, orientation[1] * scale, offset[0],
+		orientation[2] * scale, orientation[3] * scale, offset[1],
 		0, 0, 1,
 	}
 }

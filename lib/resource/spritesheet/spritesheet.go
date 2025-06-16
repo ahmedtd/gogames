@@ -13,12 +13,13 @@ type T struct {
 
 type AtlasEntry struct {
 	X, Y, Width, Height int
+	CenterX, CenterY    float32
 }
 
 func (t *T) RenderAtWorldPosition(screen *ebiten.Image, entry *AtlasEntry, worldToScreen, modelToWorld mat33.T) {
 	centerSprite := mat33.T{
-		1, 0, -float64(entry.Width) / 2,
-		0, -1, float64(entry.Height) / 2,
+		1, 0, -float64(entry.CenterX),
+		0, -1, float64(entry.CenterY),
 		0, 0, 1,
 	}
 
