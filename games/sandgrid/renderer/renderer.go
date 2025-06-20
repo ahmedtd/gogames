@@ -5,10 +5,10 @@ import (
 	"log"
 	"time"
 
-	"shellworld/games/sandgrid/world"
-	"shellworld/lib/resource/imagestamp"
-	"shellworld/lib/resource/loader"
-	"shellworld/lib/vmath/vec2"
+	"github.com/ahmedtd/gogames/games/sandgrid/world"
+	"github.com/ahmedtd/gogames/lib/resource/imagestamp"
+	"github.com/ahmedtd/gogames/lib/resource/loader"
+	"github.com/ahmedtd/gogames/lib/vmath/vec2"
 
 	"github.com/hajimehoshi/ebiten/v2"
 )

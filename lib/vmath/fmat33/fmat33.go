@@ -1,8 +1,8 @@
 package fmat33
 
 import (
-	"shellworld/lib/vmath/fvec2"
-	"shellworld/lib/vmath/fvec3"
+	"github.com/ahmedtd/gogames/lib/vmath/fvec2"
+	"github.com/ahmedtd/gogames/lib/vmath/fvec3"
 
 	"github.com/barnex/fmath"
 )

@@ -3,8 +3,9 @@ package world
 import (
 	"fmt"
 	"math"
-	"shellworld/lib/vmath/vec2"
 	"testing"
+
+	"github.com/ahmedtd/gogames/lib/vmath/vec2"
 )
 
 func TestWorldPositionToScreenPosition(t *testing.T) {

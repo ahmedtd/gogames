@@ -2,7 +2,8 @@ package mat22
 
 import (
 	"math"
-	"shellworld/lib/vmath/vec2"
+
+	"github.com/ahmedtd/gogames/lib/vmath/vec2"
 )
 
 type T [4]float64

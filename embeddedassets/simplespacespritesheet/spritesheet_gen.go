@@ -5,457 +5,129 @@ import (
 	_ "embed"
 	"fmt"
 	"image/png"
-	"shellworld/lib/resource/spritesheet"
 
+	"github.com/ahmedtd/gogames/lib/resource/spritesheet"
+	"github.com/ahmedtd/gogames/lib/resource/spritesheet/spritesheetpb"
 	"github.com/hajimehoshi/ebiten/v2"
+	"google.golang.org/protobuf/encoding/prototext"
 )
 
-var EFFECT_PURPLE = &spritesheet.AtlasEntry{
-	X:       688,
-	Y:       160,
-	Width:   64,
-	Height:  127,
-	CenterX: 0,
-	CenterY: 0,
-}
-
-var EFFECT_YELLOW = &spritesheet.AtlasEntry{
-	X:       608,
-	Y:       0,
-	Width:   64,
-	Height:  127,
-	CenterX: 0,
-	CenterY: 0,
-}
-
-var ENEMY_A = &spritesheet.AtlasEntry{
-	X:       400,
-	Y:       256,
-	Width:   96,
-	Height:  96,
-	CenterX: 0,
-	CenterY: 0,
-}
-
-var ENEMY_B = &spritesheet.AtlasEntry{
-	X:       496,
-	Y:       192,
-	Width:   96,
-	Height:  96,
-	CenterX: 0,
-	CenterY: 0,
-}
-
-var ENEMY_C = &spritesheet.AtlasEntry{
-	X:       0,
-	Y:       0,
-	Width:   128,
-	Height:  64,
-	CenterX: 0,
-	CenterY: 0,
-}
-
-var ENEMY_D = &spritesheet.AtlasEntry{
-	X:       512,
-	Y:       0,
-	Width:   96,
-	Height:  96,
-	CenterX: 0,
-	CenterY: 0,
-}
-
-var ENEMY_E = &spritesheet.AtlasEntry{
-	X:       416,
-	Y:       96,
-	Width:   96,
-	Height:  96,
-	CenterX: 0,
-	CenterY: 0,
-}
-
-var ICON_CROSSLARGE = &spritesheet.AtlasEntry{
-	X:       496,
-	Y:       288,
-	Width:   96,
-	Height:  96,
-	CenterX: 0,
-	CenterY: 0,
-}
-
-var ICON_CROSSSMALL = &spritesheet.AtlasEntry{
-	X:       676,
-	Y:       384,
-	Width:   64,
-	Height:  64,
-	CenterX: 0,
-	CenterY: 0,
-}
-
-var ICON_EXCLAMATIONLARGE = &spritesheet.AtlasEntry{
-	X:       512,
-	Y:       96,
-	Width:   96,
-	Height:  96,
-	CenterX: 0,
-	CenterY: 0,
-}
-
-var ICON_EXCLAMATIONSMALL = &spritesheet.AtlasEntry{
-	X:       608,
-	Y:       127,
-	Width:   64,
-	Height:  64,
-	CenterX: 0,
-	CenterY: 0,
-}
-
-var ICON_PLUSLARGE = &spritesheet.AtlasEntry{
-	X:       496,
-	Y:       384,
-	Width:   96,
-	Height:  96,
-	CenterX: 0,
-	CenterY: 0,
-}
-
-var ICON_PLUSSMALL = &spritesheet.AtlasEntry{
-	X:       672,
-	Y:       96,
-	Width:   64,
-	Height:  64,
-	CenterX: 0,
-	CenterY: 0,
-}
-
-var METEOR_DETAILEDLARGE = &spritesheet.AtlasEntry{
-	X:       592,
-	Y:       288,
-	Width:   96,
-	Height:  96,
-	CenterX: 0,
-	CenterY: 0,
-}
-
-var METEOR_DETAILEDSMALL = &spritesheet.AtlasEntry{
-	X:       688,
-	Y:       287,
-	Width:   64,
-	Height:  64,
-	CenterX: 0,
-	CenterY: 0,
-}
-
-var METEOR_LARGE = &spritesheet.AtlasEntry{
-	X:       416,
-	Y:       0,
-	Width:   96,
-	Height:  96,
-	CenterX: 0,
-	CenterY: 0,
-}
-
-var METEOR_SMALL = &spritesheet.AtlasEntry{
-	X:       400,
-	Y:       448,
-	Width:   64,
-	Height:  64,
-	CenterX: 0,
-	CenterY: 0,
-}
-
-var METEOR_SQUAREDETAILEDLARGE = &spritesheet.AtlasEntry{
-	X:       592,
-	Y:       192,
-	Width:   96,
-	Height:  96,
-	CenterX: 0,
-	CenterY: 0,
-}
-
-var METEOR_SQUAREDETAILEDSMALL = &spritesheet.AtlasEntry{
-	X:       736,
-	Y:       96,
-	Width:   64,
-	Height:  64,
-	CenterX: 0,
-	CenterY: 0,
-}
-
-var METEOR_SQUARELARGE = &spritesheet.AtlasEntry{
-	X:       304,
-	Y:       192,
-	Width:   96,
-	Height:  96,
-	CenterX: 0,
-	CenterY: 0,
-}
-
-var METEOR_SQUARESMALL = &spritesheet.AtlasEntry{
-	X:       216,
-	Y:       192,
-	Width:   64,
-	Height:  64,
-	CenterX: 0,
-	CenterY: 0,
-}
-
-var SATELLITE_A = &spritesheet.AtlasEntry{
-	X:       104,
-	Y:       296,
-	Width:   104,
-	Height:  88,
-	CenterX: 0,
-	CenterY: 0,
-}
-
-var SATELLITE_B = &spritesheet.AtlasEntry{
-	X:       0,
-	Y:       368,
-	Width:   104,
-	Height:  104,
-	CenterX: 0,
-	CenterY: 0,
-}
-
-var SATELLITE_C = &spritesheet.AtlasEntry{
-	X:       112,
-	Y:       184,
-	Width:   104,
-	Height:  72,
-	CenterX: 0,
-	CenterY: 0,
-}
-
-var SATELLITE_D = &spritesheet.AtlasEntry{
-	X:       0,
-	Y:       296,
-	Width:   104,
-	Height:  72,
-	CenterX: 0,
-	CenterY: 0,
-}
-
-var SHIP_A = &spritesheet.AtlasEntry{
-	X:       676,
-	Y:       448,
-	Width:   64,
-	Height:  48,
-	CenterX: 0,
-	CenterY: 0,
-}
-
-var SHIP_B = &spritesheet.AtlasEntry{
-	X:       464,
-	Y:       448,
-	Width:   32,
-	Height:  64,
-	CenterX: 0,
-	CenterY: 0,
-}
-
-var SHIP_C = &spritesheet.AtlasEntry{
-	X:       400,
-	Y:       192,
-	Width:   96,
-	Height:  64,
-	CenterX: 0,
-	CenterY: 0,
-}
-
-var SHIP_D = &spritesheet.AtlasEntry{
-	X:       208,
-	Y:       448,
-	Width:   96,
-	Height:  64,
-	CenterX: 0,
-	CenterY: 0,
-}
-
-var SHIP_E = &spritesheet.AtlasEntry{
-	X:       320,
-	Y:       96,
-	Width:   96,
-	Height:  96,
-	CenterX: 0,
-	CenterY: 0,
-}
-
-var SHIP_F = &spritesheet.AtlasEntry{
-	X:       320,
-	Y:       0,
-	Width:   96,
-	Height:  96,
-	CenterX: 0,
-	CenterY: 0,
-}
-
-var SHIP_G = &spritesheet.AtlasEntry{
-	X:       304,
-	Y:       384,
-	Width:   96,
-	Height:  96,
-	CenterX: 0,
-	CenterY: 0,
-}
-
-var SHIP_H = &spritesheet.AtlasEntry{
-	X:       304,
-	Y:       288,
-	Width:   96,
-	Height:  96,
-	CenterX: 0,
-	CenterY: 0,
-}
-
-var SHIP_I = &spritesheet.AtlasEntry{
-	X:       672,
-	Y:       0,
-	Width:   64,
-	Height:  96,
-	CenterX: 0,
-	CenterY: 0,
-}
-
-var SHIP_J = &spritesheet.AtlasEntry{
-	X:       224,
-	Y:       96,
-	Width:   96,
-	Height:  96,
-	CenterX: 0,
-	CenterY: 0,
-}
-
-var SHIP_K = &spritesheet.AtlasEntry{
-	X:       736,
-	Y:       0,
-	Width:   64,
-	Height:  96,
-	CenterX: 0,
-	CenterY: 0,
-}
-
-var SHIP_L = &spritesheet.AtlasEntry{
-	X:       208,
-	Y:       352,
-	Width:   96,
-	Height:  96,
-	CenterX: 0,
-	CenterY: 0,
-}
-
-var SHIP_SIDESA = &spritesheet.AtlasEntry{
-	X:       592,
-	Y:       384,
-	Width:   84,
-	Height:  106,
-	CenterX: 0,
-	CenterY: 0,
-}
-
-var SHIP_SIDESB = &spritesheet.AtlasEntry{
-	X:       120,
-	Y:       64,
-	Width:   104,
-	Height:  104,
-	CenterX: 0,
-	CenterY: 0,
-}
-
-var SHIP_SIDESC = &spritesheet.AtlasEntry{
-	X:       104,
-	Y:       384,
-	Width:   104,
-	Height:  104,
-	CenterX: 0,
-	CenterY: 0,
-}
-
-var SHIP_SIDESD = &spritesheet.AtlasEntry{
-	X:       128,
-	Y:       0,
-	Width:   96,
-	Height:  64,
-	CenterX: 0,
-	CenterY: 0,
-}
-
-var STAR_LARGE = &spritesheet.AtlasEntry{
-	X:       208,
-	Y:       256,
-	Width:   96,
-	Height:  96,
-	CenterX: 0,
-	CenterY: 0,
-}
-
-var STAR_MEDIUM = &spritesheet.AtlasEntry{
-	X:       224,
-	Y:       0,
-	Width:   96,
-	Height:  96,
-	CenterX: 0,
-	CenterY: 0,
-}
-
-var STAR_SMALL = &spritesheet.AtlasEntry{
-	X:       528,
-	Y:       480,
-	Width:   32,
-	Height:  32,
-	CenterX: 0,
-	CenterY: 0,
-}
-
-var STAR_TINY = &spritesheet.AtlasEntry{
-	X:       496,
-	Y:       480,
-	Width:   32,
-	Height:  32,
-	CenterX: 0,
-	CenterY: 0,
-}
-
-var STATION_A = &spritesheet.AtlasEntry{
-	X:       400,
-	Y:       352,
-	Width:   96,
-	Height:  96,
-	CenterX: 0,
-	CenterY: 0,
-}
-
-var STATION_B = &spritesheet.AtlasEntry{
-	X:       0,
-	Y:       184,
-	Width:   112,
-	Height:  112,
-	CenterX: 0,
-	CenterY: 0,
-}
-
-var STATION_C = &spritesheet.AtlasEntry{
-	X:       0,
-	Y:       64,
-	Width:   120,
-	Height:  120,
-	CenterX: 0,
-	CenterY: 0,
-}
+//go:embed simplespace.textproto
+var textprotoBytes []byte
 
 //go:embed simpleSpace_sheet@2.png
 var texturePNG []byte
 
+const EFFECT_PURPLE int = 0
+
+const EFFECT_YELLOW int = 1
+
+const ENEMY_A int = 2
+
+const ENEMY_B int = 3
+
+const ENEMY_C int = 4
+
+const ENEMY_D int = 5
+
+const ENEMY_E int = 6
+
+const ICON_CROSSLARGE int = 7
+
+const ICON_CROSSSMALL int = 8
+
+const ICON_EXCLAMATIONLARGE int = 9
+
+const ICON_EXCLAMATIONSMALL int = 10
+
+const ICON_PLUSLARGE int = 11
+
+const ICON_PLUSSMALL int = 12
+
+const METEOR_DETAILEDLARGE int = 13
+
+const METEOR_DETAILEDSMALL int = 14
+
+const METEOR_LARGE int = 15
+
+const METEOR_SMALL int = 16
+
+const METEOR_SQUAREDETAILEDLARGE int = 17
+
+const METEOR_SQUAREDETAILEDSMALL int = 18
+
+const METEOR_SQUARELARGE int = 19
+
+const METEOR_SQUARESMALL int = 20
+
+const SATELLITE_A int = 21
+
+const SATELLITE_B int = 22
+
+const SATELLITE_C int = 23
+
+const SATELLITE_D int = 24
+
+const SHIP_A int = 25
+
+const SHIP_B int = 26
+
+const SHIP_C int = 27
+
+const SHIP_D int = 28
+
+const SHIP_E int = 29
+
+const SHIP_F int = 30
+
+const SHIP_G int = 31
+
+const SHIP_H int = 32
+
+const SHIP_I int = 33
+
+const SHIP_J int = 34
+
+const SHIP_K int = 35
+
+const SHIP_L int = 36
+
+const SHIP_SIDESA int = 37
+
+const SHIP_SIDESB int = 38
+
+const SHIP_SIDESC int = 39
+
+const SHIP_SIDESD int = 40
+
+const STAR_LARGE int = 41
+
+const STAR_MEDIUM int = 42
+
+const STAR_SMALL int = 43
+
+const STAR_TINY int = 44
+
+const STATION_A int = 45
+
+const STATION_B int = 46
+
+const STATION_C int = 47
+
 var Sheet *spritesheet.T
 
 func Load() error {
+	sheetProto := &spritesheetpb.SpriteSheet{}
+	if err := prototext.Unmarshal(textprotoBytes, sheetProto); err != nil {
+		return fmt.Errorf("while unmarshaling spritesheet from textproto: %w", err)
+	}
+
 	img, err := png.Decode(bytes.NewReader(texturePNG))
 	if err != nil {
 		return fmt.Errorf("while decoding sprite PNG: %w", err)
 	}
 
-	Sheet = &spritesheet.T{
-		Image: ebiten.NewImageFromImage(img),
-	}
+	Sheet = spritesheet.New(sheetProto, ebiten.NewImageFromImage(img))
 
 	return nil
 }

@@ -1,9 +1,9 @@
 package viewport2
 
 import (
-	"shellworld/lib/vmath/mat22"
-	"shellworld/lib/vmath/mat33"
-	"shellworld/lib/vmath/vec2"
+	"github.com/ahmedtd/gogames/lib/vmath/mat22"
+	"github.com/ahmedtd/gogames/lib/vmath/mat33"
+	"github.com/ahmedtd/gogames/lib/vmath/vec2"
 )
 
 type Viewport struct {

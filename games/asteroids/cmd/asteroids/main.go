@@ -7,11 +7,12 @@ import (
 	"log"
 	"math"
 	"math/rand/v2"
-	"shellworld/embeddedassets/simplespacespritesheet"
-	"shellworld/lib/vmath/mat22"
-	"shellworld/lib/vmath/mat33"
-	"shellworld/lib/vmath/vec2"
 	"time"
+
+	"github.com/ahmedtd/gogames/embeddedassets/simplespacespritesheet"
+	"github.com/ahmedtd/gogames/lib/vmath/mat22"
+	"github.com/ahmedtd/gogames/lib/vmath/mat33"
+	"github.com/ahmedtd/gogames/lib/vmath/vec2"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/vector"

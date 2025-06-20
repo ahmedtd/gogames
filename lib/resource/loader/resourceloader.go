@@ -6,10 +6,11 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"shellworld/lib/resource/imagestamp"
-	"shellworld/lib/vmath/vec2"
 	"strings"
 	"sync"
+
+	"github.com/ahmedtd/gogames/lib/resource/imagestamp"
+	"github.com/ahmedtd/gogames/lib/vmath/vec2"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"go.starlark.net/starlark"

@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"log"
 
-	"shellworld/games/sandgrid/renderer"
-	"shellworld/games/sandgrid/world"
-	"shellworld/lib/resource/loader"
+	"github.com/ahmedtd/gogames/games/sandgrid/renderer"
+	"github.com/ahmedtd/gogames/games/sandgrid/world"
+	"github.com/ahmedtd/gogames/lib/resource/loader"
 
 	"github.com/hajimehoshi/ebiten/v2"
 )

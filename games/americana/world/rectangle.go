@@ -1,6 +1,6 @@
 package world
 
-import "shellworld/lib/vmath/vec2"
+import "github.com/ahmedtd/gogames/lib/vmath/vec2"
 
 type Rectangle struct {
 	Min vec2.T

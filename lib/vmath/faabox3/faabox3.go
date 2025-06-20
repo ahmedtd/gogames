@@ -2,8 +2,8 @@ package faabox3
 
 // import (
 // 	"math"
-// 	"shellworld/lib/vmath/faffinetransform3"
-// 	"shellworld/lib/vmath/fvec3"
+// 	"github.com/ahmedtd/gogames/lib/vmath/faffinetransform3"
+// 	"github.com/ahmedtd/gogames/lib/vmath/fvec3"
 // )
 
 // type T struct {

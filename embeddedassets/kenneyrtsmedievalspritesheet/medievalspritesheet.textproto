@@ -1,0 +1,1262 @@
+image_path: "medievalRTS_spritesheet@2.png"
+
+sprites {
+  name: "tree_tall"
+  x: 1029
+  y: 636
+  width: 38
+  height: 92
+  center_x: 19.5
+  center_y: 80
+}
+
+sprites {
+  name: "tree_conifer"
+  x: 1030
+  y: 728
+  width: 37
+  height: 66
+  center_x: 18
+  center_y: 60
+}
+
+sprites {
+  name: "tree_conifer_large"
+  x: 1023
+  y: 0
+  width: 53
+  height: 96
+  center_x: 26
+  center_y: 90
+}
+
+sprites {
+  name: "stump"
+  x: 838
+  y: 736
+  width: 28
+  height: 30
+  center_x: 14.5
+  center_y: 24
+}
+
+sprites {
+  name: "log"
+  x: 766
+  y: 736
+  width: 72
+  height: 30
+  center_x: 36.5
+  center_y: 28
+}
+
+sprites {
+  name: "rock_small"
+  x: 804
+  y: 603
+  width: 36
+  height: 32
+  center_x: 18.5
+  center_y: 30
+}
+
+sprites {
+  name: "rock_large"
+  x: 976
+  y: 963
+  width: 64
+  height: 56
+  center_x: 32.5
+  center_y: 54
+}
+
+sprites {
+  name: "rock_pile"
+  x: 950
+  y: 535
+  width: 76
+  height: 64
+  center_x: 20
+  center_y: 62
+}
+
+sprites {
+  name: "rock_pile_large"
+  x: 950
+  y: 465
+  width: 76
+  height: 70
+  center_x: 18
+  center_y: 68
+}
+
+sprites {
+  name: "rock_pile_large_copper"
+  x: 950
+  y: 395
+  width: 76
+  height: 70
+  center_x: 18
+  center_y: 68
+}
+
+sprites {
+  name: "rock_pile_large_gold"
+  x: 950
+  y: 325
+  width: 76
+  height: 70
+  center_x: 18
+  center_y: 68
+}
+
+sprites {
+  name: "bush"
+  x: 903
+  y: 255
+  width: 40
+  height: 46
+  center_x: 20.5
+  center_y: 40
+}
+
+sprites {
+  name: "brown_rock_small"
+  x: 768
+  y: 603
+  width: 36
+  height: 32
+  center_x: 18.5
+  center_y: 30
+}
+
+sprites {
+  name: "brown_rock_large"
+  x: 951
+  y: 190
+  width: 64
+  height: 56
+  center_x: 32.5
+  center_y: 54
+}
+
+sprites {
+  name: "brown_rock_pile"
+  x: 900
+  y: 950
+  width: 76
+  height: 64
+  center_x: 20
+  center_y: 62
+}
+
+sprites {
+  name: "brown_rock_pile_large"
+  x: 900
+  y: 1014
+  width: 76
+  height: 70
+  center_x: 18
+  center_y: 68
+}
+
+sprites {
+  name: "brown_rock_pile_large_iron"
+  x: 951
+  y: 120
+  width: 76
+  height: 70
+  center_x: 18
+  center_y: 68
+}
+
+sprites {
+  name: "brown_rock_pile_large_gold"
+  x: 950
+  y: 255
+  width: 76
+  height: 70
+  center_x: 18
+  center_y: 68
+}
+
+sprites {
+  name: "bush_berries"
+  x: 863
+  y: 255
+  width: 40
+  height: 47
+  center_x: 20.5
+  center_y: 40
+}
+
+sprites {
+  name: "fire"
+  x: 1026
+  y: 318
+  width: 43
+  height: 96
+  center_x: 22
+  center_y: 92
+}
+
+sprites {
+  name: "tree_small"
+  x: 1076
+  y: 0
+  width: 28
+  height: 64
+  center_x: 14.5
+  center_y: 60
+}
+
+sprites {
+  name: "red_roof_tower_top"
+  x: 957
+  y: 699
+  width: 72
+  height: 84
+  center_x: 36.5
+  center_y: 84
+}
+
+sprites {
+  name: "castle_top"
+  x: 384
+  y: 1024
+  width: 120
+  height: 76
+  center_x: 60.5
+  center_y: 76
+}
+
+sprites {
+  name: "house"
+  x: 608
+  y: 1024
+  width: 104
+  height: 68
+  center_x: 52.5
+  center_y: 68
+}
+
+sprites {
+  name: "church_base"
+  x: 812
+  y: 1013
+  width: 88
+  height: 72
+  center_x: 44.5
+  center_y: 72
+}
+
+sprites {
+  name: "stone_tower_base"
+  x: 862
+  y: 399
+  width: 88
+  height: 84
+  center_x: 44.5
+  center_y: 84
+}
+
+sprites {
+  name: "castle_base"
+  x: 128
+  y: 1024
+  width: 120
+  height: 76
+  center_x: 60.5
+  center_y: 76
+}
+
+sprites {
+  name: "store_addon"
+  x: 504
+  y: 1024
+  width: 104
+  height: 68
+  center_x: 52.5
+  center_y: 68
+}
+
+sprites {
+  name: "tower_narrowing_mid"
+  x: 959
+  y: 0
+  width: 64
+  height: 80
+  center_x: 32.5
+  center_y: 80
+}
+
+sprites {
+  name: "house_large"
+  x: 760
+  y: 893
+  width: 112
+  height: 120
+  center_x: 56.5
+  center_y: 120
+}
+
+sprites {
+  name: "stucco_tower_top"
+  x: 862
+  y: 555
+  width: 88
+  height: 80
+  center_x: 44.5
+  center_y: 80
+}
+
+sprites {
+  name: "stucco_tower_base"
+  x: 863
+  y: 175
+  width: 88
+  height: 80
+  center_x: 44.5
+  center_y: 80
+}
+
+sprites {
+  name: "fountain"
+  x: 1026
+  y: 514
+  width: 40
+  height: 72
+  center_x: 20.5
+  center_y: 72
+}
+
+sprites {
+  name: "windmillblade1"
+  x: 768
+  y: 0
+  width: 103
+  height: 103
+  center_x: 52
+  center_y: 52
+}
+
+sprites {
+  name: "windmillblade2"
+  x: 640
+  y: 768
+  width: 125
+  height: 125
+  center_x: 63
+  center_y: 63
+}
+
+sprites {
+  name: "windmillblade3"
+  x: 640
+  y: 640
+  width: 126
+  height: 128
+  center_x: 63.5
+  center_y: 64.5
+}
+
+sprites {
+  name: "shed"
+  x: 869
+  y: 736
+  width: 88
+  height: 120
+  center_x: 44.5
+  center_y: 120
+}
+
+sprites {
+  name: "medievalStructure_17"
+  x: 871
+  y: 0
+  width: 88
+  height: 120
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "medievalStructure_18"
+  x: 862
+  y: 303
+  width: 88
+  height: 96
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "medievalStructure_19"
+  x: 765
+  y: 768
+  width: 104
+  height: 120
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "medievalStructure_20"
+  x: 766
+  y: 640
+  width: 104
+  height: 96
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "medievalStructure_21"
+  x: 640
+  y: 893
+  width: 120
+  height: 120
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "medievalStructure_22"
+  x: 976
+  y: 883
+  width: 64
+  height: 80
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "medievalStructure_23"
+  x: 862
+  y: 483
+  width: 88
+  height: 72
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "tile_sand"
+  x: 0
+  y: 640
+  width: 128
+  height: 128
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "medievalTile_02"
+  x: 0
+  y: 768
+  width: 128
+  height: 128
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "medievalTile_03"
+  x: 0
+  y: 896
+  width: 128
+  height: 128
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "medievalTile_04"
+  x: 128
+  y: 128
+  width: 128
+  height: 128
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "medievalTile_05"
+  x: 128
+  y: 384
+  width: 128
+  height: 128
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "medievalTile_06"
+  x: 128
+  y: 640
+  width: 128
+  height: 128
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "medievalTile_07"
+  x: 128
+  y: 768
+  width: 128
+  height: 128
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "medievalTile_08"
+  x: 1026
+  y: 190
+  width: 60
+  height: 128
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "medievalTile_09"
+  x: 0
+  y: 1024
+  width: 128
+  height: 60
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "medievalTile_10"
+  x: 256
+  y: 128
+  width: 128
+  height: 128
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "medievalTile_11"
+  x: 256
+  y: 256
+  width: 128
+  height: 94
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "medievalTile_12"
+  x: 256
+  y: 606
+  width: 128
+  height: 94
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "medievalTile_13"
+  x: 256
+  y: 700
+  width: 128
+  height: 128
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "medievalTile_14"
+  x: 640
+  y: 0
+  width: 128
+  height: 128
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "medievalTile_15"
+  x: 640
+  y: 128
+  width: 128
+  height: 128
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "medievalTile_16"
+  x: 640
+  y: 384
+  width: 128
+  height: 128
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "medievalTile_17"
+  x: 640
+  y: 512
+  width: 128
+  height: 128
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "medievalTile_18"
+  x: 384
+  y: 640
+  width: 128
+  height: 128
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "medievalTile_19"
+  x: 0
+  y: 128
+  width: 128
+  height: 128
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "medievalTile_20"
+  x: 0
+  y: 0
+  width: 128
+  height: 128
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "medievalTile_21"
+  x: 384
+  y: 512
+  width: 128
+  height: 128
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "medievalTile_22"
+  x: 768
+  y: 303
+  width: 94
+  height: 86
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "medievalTile_23"
+  x: 870
+  y: 635
+  width: 86
+  height: 94
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "medievalTile_24"
+  x: 712
+  y: 1013
+  width: 100
+  height: 72
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "medievalTile_25"
+  x: 768
+  y: 389
+  width: 94
+  height: 128
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "medievalTile_26"
+  x: 768
+  y: 175
+  width: 95
+  height: 128
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "medievalTile_27"
+  x: 384
+  y: 896
+  width: 128
+  height: 128
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "medievalTile_28"
+  x: 512
+  y: 640
+  width: 128
+  height: 128
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "medievalTile_29"
+  x: 0
+  y: 384
+  width: 128
+  height: 128
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "medievalTile_30"
+  x: 0
+  y: 256
+  width: 128
+  height: 128
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "medievalTile_31"
+  x: 512
+  y: 128
+  width: 128
+  height: 128
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "medievalTile_32"
+  x: 512
+  y: 256
+  width: 128
+  height: 128
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "medievalTile_33"
+  x: 512
+  y: 384
+  width: 128
+  height: 128
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "medievalTile_34"
+  x: 640
+  y: 256
+  width: 128
+  height: 128
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "medievalTile_35"
+  x: 512
+  y: 0
+  width: 128
+  height: 128
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "medievalTile_36"
+  x: 872
+  y: 856
+  width: 86
+  height: 94
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "medievalTile_37"
+  x: 768
+  y: 517
+  width: 94
+  height: 86
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "medievalTile_38"
+  x: 768
+  y: 103
+  width: 100
+  height: 72
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "medievalTile_39"
+  x: 956
+  y: 599
+  width: 72
+  height: 100
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "medievalTile_40"
+  x: 958
+  y: 783
+  width: 72
+  height: 100
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "medievalTile_41"
+  x: 512
+  y: 896
+  width: 128
+  height: 128
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "medievalTile_42"
+  x: 512
+  y: 768
+  width: 128
+  height: 128
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "medievalTile_43"
+  x: 256
+  y: 478
+  width: 128
+  height: 128
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "medievalTile_44"
+  x: 512
+  y: 512
+  width: 128
+  height: 128
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "medievalTile_45"
+  x: 256
+  y: 350
+  width: 128
+  height: 128
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "medievalTile_46"
+  x: 256
+  y: 0
+  width: 128
+  height: 128
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "medievalTile_47"
+  x: 128
+  y: 896
+  width: 128
+  height: 128
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "medievalTile_48"
+  x: 128
+  y: 512
+  width: 128
+  height: 128
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "medievalTile_49"
+  x: 128
+  y: 256
+  width: 128
+  height: 128
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "medievalTile_50"
+  x: 384
+  y: 768
+  width: 128
+  height: 128
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "medievalTile_51"
+  x: 128
+  y: 0
+  width: 128
+  height: 128
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "medievalTile_52"
+  x: 0
+  y: 512
+  width: 128
+  height: 128
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "medievalTile_53"
+  x: 384
+  y: 384
+  width: 128
+  height: 128
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "medievalTile_54"
+  x: 384
+  y: 256
+  width: 128
+  height: 128
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "medievalTile_55"
+  x: 384
+  y: 128
+  width: 128
+  height: 128
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "medievalTile_56"
+  x: 384
+  y: 0
+  width: 128
+  height: 128
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "medievalTile_57"
+  x: 256
+  y: 956
+  width: 128
+  height: 128
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "medievalTile_58"
+  x: 256
+  y: 828
+  width: 128
+  height: 128
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "blue_woman"
+  x: 1069
+  y: 318
+  width: 33
+  height: 48
+  center_x: 16
+  center_y: 44
+}
+
+sprites {
+  name: "blue_man"
+  x: 1067
+  y: 96
+  width: 33
+  height: 48
+  center_x: 16
+  center_y: 44
+}
+
+sprites {
+  name: "blue_cleric"
+  x: 909
+  y: 120
+  width: 41
+  height: 52
+  center_x: 16
+  center_y: 52
+}
+
+sprites {
+  name: "blue_spearman"
+  x: 1030
+  y: 794
+  width: 36
+  height: 50
+  center_x: 16
+  center_y: 50
+}
+
+sprites {
+  name: "blue_halberdier"
+  x: 1026
+  y: 464
+  width: 40
+  height: 50
+  center_x: 16
+  center_y: 50
+}
+
+sprites {
+  name: "blue_king"
+  x: 1066
+  y: 794
+  width: 33
+  height: 48
+  center_x: 16
+  center_y: 48
+}
+
+sprites {
+  name: "red_woman"
+  x: 1058
+  y: 994
+  width: 33
+  height: 48
+  center_x: 16
+  center_y: 48
+}
+
+sprites {
+  name: "red_man"
+  x: 1058
+  y: 1042
+  width: 33
+  height: 48
+  center_x: 16
+  center_y: 48
+}
+
+sprites {
+  name: "red_cleric"
+  x: 868
+  y: 120
+  width: 41
+  height: 52
+  center_x: 16
+  center_y: 52
+}
+
+sprites {
+  name: "red_spearman"
+  x: 1040
+  y: 844
+  width: 36
+  height: 50
+  center_x: 16
+  center_y: 50
+}
+
+sprites {
+  name: "red_halberdier"
+  x: 1027
+  y: 96
+  width: 40
+  height: 50
+  center_x: 16
+  center_y: 50
+}
+
+sprites {
+  name: "red_king"
+  x: 1066
+  y: 462
+  width: 33
+  height: 48
+  center_x: 16
+  center_y: 48
+}
+
+sprites {
+  name: "green_woman"
+  x: 1068
+  y: 558
+  width: 33
+  height: 48
+  center_x: 16
+  center_y: 48
+}
+
+sprites {
+  name: "green_man"
+  x: 1066
+  y: 414
+  width: 33
+  height: 48
+  center_x: 16
+  center_y: 48
+}
+
+sprites {
+  name: "green_cleric"
+  x: 1017
+  y: 1019
+  width: 41
+  height: 52
+  center_x: 16
+  center_y: 52
+}
+
+sprites {
+  name: "green_spearman"
+  x: 1040
+  y: 894
+  width: 36
+  height: 50
+  center_x: 16
+  center_y: 50
+}
+
+sprites {
+  name: "green_halberdier"
+  x: 1026
+  y: 414
+  width: 40
+  height: 50
+  center_x: 16
+  center_y: 50
+}
+
+sprites {
+  name: "green_king"
+  x: 1066
+  y: 510
+  width: 33
+  height: 48
+  center_x: 16
+  center_y: 48
+}
+
+sprites {
+  name: "grey_woman"
+  x: 1067
+  y: 636
+  width: 33
+  height: 48
+  center_x: 16
+  center_y: 48
+}
+
+sprites {
+  name: "grey_man"
+  x: 1067
+  y: 684
+  width: 33
+  height: 48
+  center_x: 16
+  center_y: 48
+}
+
+sprites {
+  name: "grey_cleric"
+  x: 976
+  y: 1019
+  width: 41
+  height: 52
+  center_x: 16
+  center_y: 52
+}
+
+sprites {
+  name: "grey_spearman"
+  x: 1040
+  y: 944
+  width: 36
+  height: 50
+  center_x: 16
+  center_y: 50
+}
+
+sprites {
+  name: "grey_halberdier"
+  x: 1028
+  y: 586
+  width: 40
+  height: 50
+  center_x: 16
+  center_y: 50
+}
+
+sprites {
+  name: "grey_king"
+  x: 1067
+  y: 732
+  width: 33
+  height: 48
+  center_x: 16
+  center_y: 48
+}
+

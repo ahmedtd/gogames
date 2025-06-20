@@ -2,8 +2,9 @@ package tilesheet
 
 import (
 	"image"
-	"shellworld/lib/vmath/mat33"
-	"shellworld/lib/vmath/vec2"
+
+	"github.com/ahmedtd/gogames/lib/vmath/mat33"
+	"github.com/ahmedtd/gogames/lib/vmath/vec2"
 
 	"github.com/hajimehoshi/ebiten/v2"
 )

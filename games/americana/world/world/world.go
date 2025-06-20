@@ -5,8 +5,8 @@ import (
 	"math/rand"
 	"time"
 
-	"shellworld/lib/vmath/mat33"
-	"shellworld/lib/vmath/vec2"
+	"github.com/ahmedtd/gogames/lib/vmath/mat33"
+	"github.com/ahmedtd/gogames/lib/vmath/vec2"
 )
 
 type UIInput struct {

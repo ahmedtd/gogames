@@ -1,0 +1,18 @@
+syntax = "proto3";
+
+option go_package = "github.com/ahmedtd/gogames/lib/resource/spritesheet/spritesheetpb";
+
+message SpriteSheet {
+    string image_path = 1;
+    repeated Sprite sprites = 2;
+}
+
+message Sprite {
+    string name = 1;
+    int32 x = 2;
+    int32 y = 3;
+    int32 width = 4;
+    int32 height = 5;
+    double center_x = 6;
+    double center_y = 7;
+}

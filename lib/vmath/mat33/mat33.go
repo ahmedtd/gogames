@@ -3,9 +3,9 @@ package mat33
 import (
 	"math"
 
-	"shellworld/lib/vmath/mat22"
-	"shellworld/lib/vmath/vec2"
-	"shellworld/lib/vmath/vec3"
+	"github.com/ahmedtd/gogames/lib/vmath/mat22"
+	"github.com/ahmedtd/gogames/lib/vmath/vec2"
+	"github.com/ahmedtd/gogames/lib/vmath/vec3"
 )
 
 type T [9]float64

@@ -1,5 +1,5 @@
-// Command kenneyspritesheet turns takes a Kenney sprite sheet XML descriptor
-// and outputs Go code for sprite definitions.
+// Command spritexml2pb turns takes a Kenney sprite sheet XML descriptor
+// and outputs a spritesheet textproto
 package main
 
 import (
@@ -7,7 +7,6 @@ import (
 	"encoding/xml"
 	"flag"
 	"fmt"
-	"go/format"
 	"log"
 	"os"
 	"strings"
@@ -15,8 +14,7 @@ import (
 )
 
 var (
-	genFileName  = flag.String("gen-file-name", "", "How to name the generated file.")
-	packageName  = flag.String("package-name", "", "The package name to use in the generated file.")
+	outFileName  = flag.String("out", "", "How to name the generated file.")
 	atlasXMLFile = flag.String("atlas-xml", "", "The sprite sheet to process")
 )
 
@@ -52,8 +50,7 @@ func do() error {
 	}
 
 	input := templateInput{
-		PackageName: *packageName,
-		Atlas:       xmlAtlas,
+		Atlas: xmlAtlas,
 	}
 
 	rawSource := &bytes.Buffer{}
@@ -61,63 +58,29 @@ func do() error {
 		return fmt.Errorf("while executing template: %w", err)
 	}
 
-	formattedSource, err := format.Source(rawSource.Bytes())
-	if err != nil {
-		log.Printf("raw source:\n%s", rawSource)
-		return fmt.Errorf("while formatting raw source: %w", err)
-	}
-
-	if err := os.WriteFile(*genFileName, formattedSource, 0o644); err != nil {
+	if err := os.WriteFile(*outFileName, rawSource.Bytes(), 0o644); err != nil {
 		return fmt.Errorf("while writing output file: %w", err)
 	}
 
 	return nil
 }
 
-var fileTmpl = `package {{.PackageName}}
-
-import (
-	"bytes"
-	_ "embed"
-	"fmt"
-	"image/png"
-	"shellworld/lib/resource/spritesheet"
-
-	"github.com/hajimehoshi/ebiten/v2"
-)
-
+var fileTmpl = `image_path: "{{.Atlas.ImagePath}}"
 {{range .Atlas.SubTextures}}
-var {{.CodeName}} = &spritesheet.AtlasEntry{
-	X:      {{.X}},
-	Y:      {{.Y}},
-	Width:  {{.Width}},
-	Height: {{.Height}},
-	CenterX: {{.CenterX}},
-	CenterY: {{.CenterY}},
+sprites {
+  name: "{{.Name}}"
+  x: {{.X}}
+  y: {{.Y}}
+  width: {{.Width}}
+  height: {{.Height}}
+  center_x: {{.CenterX}}
+  center_y: {{.CenterY}}
 }
 {{end}}
-
-//go:embed {{.Atlas.ImagePath}}
-var texturePNG []byte
-
-var Sheet *spritesheet.T
-func Load() error {
-	img, err := png.Decode(bytes.NewReader(texturePNG))
-	if err != nil {
-		return fmt.Errorf("while decoding sprite PNG: %w", err)
-	}
-
-	Sheet = &spritesheet.T{
-		Image: ebiten.NewImageFromImage(img),
-	}
-
-	return nil
-}
 `
 
 type templateInput struct {
-	PackageName string
-	Atlas       xmlTextureAtlas
+	Atlas xmlTextureAtlas
 }
 
 type xmlTextureAtlas struct {

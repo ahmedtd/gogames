@@ -2,8 +2,9 @@ package simulation
 
 import (
 	"math"
-	"shellworld/lib/vmath/vec3"
 	"time"
+
+	"github.com/ahmedtd/gogames/lib/vmath/vec3"
 )
 
 type FrameInput struct {

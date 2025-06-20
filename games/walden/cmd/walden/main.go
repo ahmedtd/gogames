@@ -7,13 +7,14 @@ import (
 	"image/color"
 	"log"
 	"math/rand/v2"
-	"shellworld/embeddedassets/kenneyrtsmedievalspritesheet"
-	"shellworld/embeddedassets/simplespacespritesheet"
-	"shellworld/lib/viewport2"
-	"shellworld/lib/vmath/mat22"
-	"shellworld/lib/vmath/mat33"
-	"shellworld/lib/vmath/vec2"
 	"time"
+
+	"github.com/ahmedtd/gogames/embeddedassets/kenneyrtsmedievalspritesheet"
+	"github.com/ahmedtd/gogames/embeddedassets/simplespacespritesheet"
+	"github.com/ahmedtd/gogames/lib/viewport2"
+	"github.com/ahmedtd/gogames/lib/vmath/mat22"
+	"github.com/ahmedtd/gogames/lib/vmath/mat33"
+	"github.com/ahmedtd/gogames/lib/vmath/vec2"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/vector"
@@ -80,7 +81,12 @@ func (r *Renderer) Draw(screen *ebiten.Image) {
 		switch ent.Type {
 		case EntityTypeTree:
 			modelToWorld := mat33.Transform2(1.0/64.0, ent.Orientation, ent.Position)
-			kenneyrtsmedievalspritesheet.Sheet.RenderAtWorldPosition(screen, kenneyrtsmedievalspritesheet.MEDIEVALUNIT_07, worldToScreen, modelToWorld)
+			kenneyrtsmedievalspritesheet.Sheet.RenderAtWorldPosition(
+				screen,
+				kenneyrtsmedievalspritesheet.LOG,
+				worldToScreen,
+				modelToWorld,
+			)
 		}
 
 		if ent.Type != EntityTypeInvalid {

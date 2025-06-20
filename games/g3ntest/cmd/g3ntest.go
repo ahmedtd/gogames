@@ -1,8 +1,9 @@
 package main
 
 import (
-	"shellworld/games/g3ntest/simulation"
 	"time"
+
+	"github.com/ahmedtd/gogames/games/g3ntest/simulation"
 
 	"github.com/g3n/engine/app"
 	"github.com/g3n/engine/camera"

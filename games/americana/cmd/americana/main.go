@@ -12,12 +12,12 @@ import (
 	"log"
 	"time"
 
-	"shellworld/games/americana/embeddedassets/medievaltilesheet"
-	"shellworld/games/americana/world/world"
-	"shellworld/lib/resource/imagestamp"
-	"shellworld/lib/resource/loader"
-	"shellworld/lib/resource/tilesheet"
-	"shellworld/lib/vmath/vec2"
+	"github.com/ahmedtd/gogames/games/americana/embeddedassets/medievaltilesheet"
+	"github.com/ahmedtd/gogames/games/americana/world/world"
+	"github.com/ahmedtd/gogames/lib/resource/imagestamp"
+	"github.com/ahmedtd/gogames/lib/resource/loader"
+	"github.com/ahmedtd/gogames/lib/resource/tilesheet"
+	"github.com/ahmedtd/gogames/lib/vmath/vec2"
 
 	"github.com/hajimehoshi/ebiten/v2"
 )

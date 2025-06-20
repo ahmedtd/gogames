@@ -23,10 +23,10 @@ import (
 	"sync"
 	"time"
 
-	"shellworld/embeddedassets/departuremonofont"
-	"shellworld/lib/vmath/faffinetransform3"
-	"shellworld/lib/vmath/fmat33"
-	"shellworld/lib/vmath/fvec3"
+	"github.com/ahmedtd/gogames/embeddedassets/departuremonofont"
+	"github.com/ahmedtd/gogames/lib/vmath/faffinetransform3"
+	"github.com/ahmedtd/gogames/lib/vmath/fmat33"
+	"github.com/ahmedtd/gogames/lib/vmath/fvec3"
 
 	"github.com/barnex/fmath"
 	"github.com/google/subcommands"

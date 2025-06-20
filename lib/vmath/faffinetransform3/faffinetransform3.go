@@ -1,9 +1,9 @@
 package faffinetransform3
 
 import (
-	"shellworld/lib/vmath/fmat33"
-	"shellworld/lib/vmath/fmat44"
-	"shellworld/lib/vmath/fvec3"
+	"github.com/ahmedtd/gogames/lib/vmath/fmat33"
+	"github.com/ahmedtd/gogames/lib/vmath/fmat44"
+	"github.com/ahmedtd/gogames/lib/vmath/fvec3"
 
 	"github.com/barnex/fmath"
 )

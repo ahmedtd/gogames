@@ -1,4 +1,4 @@
-module shellworld
+module github.com/ahmedtd/gogames
 
 go 1.23
 
@@ -8,9 +8,9 @@ require (
 	github.com/google/go-cmp v0.6.0
 	github.com/google/subcommands v1.2.0
 	github.com/hajimehoshi/ebiten/v2 v2.8.5
-	github.com/mmcloughlin/avo v0.6.0
 	go.starlark.net v0.0.0-20230112144946-fae38c8a6d89
 	golang.org/x/sync v0.8.0
+	google.golang.org/protobuf v1.25.0
 )
 
 require (
@@ -21,11 +21,8 @@ require (
 	github.com/go-text/typesetting v0.2.0 // indirect
 	github.com/golang/freetype v0.0.0-20170609003504-e2365dfdc4a0 // indirect
 	github.com/jezek/xgb v1.1.1 // indirect
-	github.com/qmuntal/gltf v0.28.0 // indirect
 	golang.org/x/image v0.20.0 // indirect
-	golang.org/x/mod v0.21.0 // indirect
 	golang.org/x/sys v0.25.0 // indirect
 	golang.org/x/text v0.18.0 // indirect
-	golang.org/x/tools v0.25.0 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 )
