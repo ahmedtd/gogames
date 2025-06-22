@@ -231,7 +231,7 @@ sprites {
 }
 
 sprites {
-  name: "house"
+  name: "house1"
   x: 608
   y: 1024
   width: 104
@@ -371,233 +371,233 @@ sprites {
 }
 
 sprites {
-  name: "medievalStructure_17"
+  name: "house2"
   x: 871
   y: 0
   width: 88
   height: 120
-  center_x: 0
-  center_y: 0
+  center_x: 44.5
+  center_y: 120
 }
 
 sprites {
-  name: "medievalStructure_18"
+  name: "house3"
   x: 862
   y: 303
   width: 88
   height: 96
-  center_x: 0
-  center_y: 0
+  center_x: 44.5
+  center_y: 96
 }
 
 sprites {
-  name: "medievalStructure_19"
+  name: "barn"
   x: 765
   y: 768
   width: 104
   height: 120
-  center_x: 0
-  center_y: 0
+  center_x: 52.5
+  center_y: 120
 }
 
 sprites {
-  name: "medievalStructure_20"
+  name: "house4"
   x: 766
   y: 640
   width: 104
   height: 96
-  center_x: 0
-  center_y: 0
+  center_x: 52.4
+  center_y: 96
 }
 
 sprites {
-  name: "medievalStructure_21"
+  name: "house6"
   x: 640
   y: 893
   width: 120
   height: 120
-  center_x: 0
-  center_y: 0
+  center_x: 60.5
+  center_y: 120
 }
 
 sprites {
-  name: "medievalStructure_22"
+  name: "stall"
   x: 976
   y: 883
   width: 64
   height: 80
-  center_x: 0
-  center_y: 0
+  center_x: 32.5
+  center_y: 80
 }
 
 sprites {
-  name: "medievalStructure_23"
+  name: "clocktop"
   x: 862
   y: 483
   width: 88
   height: 72
-  center_x: 0
-  center_y: 0
+  center_x: 44.5
+  center_y: 72
 }
 
 sprites {
-  name: "tile_sand"
+  name: "tile_sand1"
   x: 0
   y: 640
   width: 128
   height: 128
-  center_x: 0
-  center_y: 0
+  center_x: 64
+  center_y: 64
 }
 
 sprites {
-  name: "medievalTile_02"
+  name: "tile_sand2"
   x: 0
   y: 768
   width: 128
   height: 128
-  center_x: 0
-  center_y: 0
+  center_x: 64
+  center_y: 64
 }
 
 sprites {
-  name: "medievalTile_03"
+  name: "tile_grass_road_0deg"
   x: 0
   y: 896
   width: 128
   height: 128
-  center_x: 0
-  center_y: 0
+  center_x: 64
+  center_y: 64
 }
 
 sprites {
-  name: "medievalTile_04"
+  name: "tile_grass_road_90deg"
   x: 128
   y: 128
   width: 128
   height: 128
-  center_x: 0
-  center_y: 0
+  center_x: 64
+  center_y: 64
 }
 
 sprites {
-  name: "medievalTile_05"
+  name: "tile_grass_crossroad"
   x: 128
   y: 384
   width: 128
   height: 128
-  center_x: 0
-  center_y: 0
+  center_x: 64
+  center_y: 64
 }
 
 sprites {
-  name: "medievalTile_06"
+  name: "tile_grass_troad_180deg"
   x: 128
   y: 640
   width: 128
   height: 128
-  center_x: 0
-  center_y: 0
+  center_x: 64
+  center_y: 64
 }
 
 sprites {
-  name: "medievalTile_07"
+  name: "tile_grass_troad_0deg"
   x: 128
   y: 768
   width: 128
   height: 128
-  center_x: 0
-  center_y: 0
+  center_x: 64
+  center_y: 64
 }
 
 sprites {
-  name: "medievalTile_08"
+  name: "road_straight_0deg"
   x: 1026
   y: 190
   width: 60
   height: 128
-  center_x: 0
-  center_y: 0
+  center_x: 30
+  center_y: 64
 }
 
 sprites {
-  name: "medievalTile_09"
+  name: "road_straight_90deg"
   x: 0
   y: 1024
   width: 128
   height: 60
-  center_x: 0
-  center_y: 0
+  center_x: 64
+  center_y: 30
 }
 
 sprites {
-  name: "medievalTile_10"
+  name: "road_cross"
   x: 256
   y: 128
   width: 128
   height: 128
-  center_x: 0
-  center_y: 0
+  center_x: 64
+  center_y: 64
 }
 
 sprites {
-  name: "medievalTile_11"
+  name: "road_t_180deg"
   x: 256
   y: 256
   width: 128
   height: 94
-  center_x: 0
-  center_y: 0
+  center_x: 64
+  center_y: 47
 }
 
 sprites {
-  name: "medievalTile_12"
+  name: "road_t_0deg"
   x: 256
   y: 606
   width: 128
   height: 94
-  center_x: 0
-  center_y: 0
+  center_x: 64
+  center_y: 47
 }
 
 sprites {
-  name: "medievalTile_13"
+  name: "tile_dirt1"
   x: 256
   y: 700
   width: 128
   height: 128
-  center_x: 0
-  center_y: 0
+  center_x: 64
+  center_y: 64
 }
 
 sprites {
-  name: "medievalTile_14"
+  name: "tile_dirt2"
   x: 640
   y: 0
   width: 128
   height: 128
-  center_x: 0
-  center_y: 0
+  center_x: 64
+  center_y: 64
 }
 
 sprites {
-  name: "medievalTile_15"
+  name: "tile_rock1"
   x: 640
   y: 128
   width: 128
   height: 128
-  center_x: 0
-  center_y: 0
+  center_x: 64
+  center_y: 64
 }
 
 sprites {
-  name: "medievalTile_16"
+  name: "tile_rock2"
   x: 640
   y: 384
   width: 128
   height: 128
-  center_x: 0
-  center_y: 0
+  center_x: 64
+  center_y: 64
 }
 
 sprites {
@@ -701,43 +701,43 @@ sprites {
 }
 
 sprites {
-  name: "medievalTile_27"
+  name: "tile_ice1"
   x: 384
   y: 896
   width: 128
   height: 128
-  center_x: 0
-  center_y: 0
+  center_x: 64
+  center_y: 64
 }
 
 sprites {
-  name: "medievalTile_28"
+  name: "tile_ice2"
   x: 512
   y: 640
   width: 128
   height: 128
-  center_x: 0
-  center_y: 0
+  center_x: 64
+  center_y: 64
 }
 
 sprites {
-  name: "medievalTile_29"
+  name: "tile_snow1"
   x: 0
   y: 384
   width: 128
   height: 128
-  center_x: 0
-  center_y: 0
+  center_x: 64
+  center_y: 64
 }
 
 sprites {
-  name: "medievalTile_30"
+  name: "tile_snow2"
   x: 0
   y: 256
   width: 128
   height: 128
-  center_x: 0
-  center_y: 0
+  center_x: 64
+  center_y: 64
 }
 
 sprites {
@@ -1001,23 +1001,23 @@ sprites {
 }
 
 sprites {
-  name: "medievalTile_57"
+  name: "tile_grass1"
   x: 256
   y: 956
   width: 128
   height: 128
-  center_x: 0
-  center_y: 0
+  center_x: 64
+  center_y: 64
 }
 
 sprites {
-  name: "medievalTile_58"
+  name: "tile_grass2"
   x: 256
   y: 828
   width: 128
   height: 128
-  center_x: 0
-  center_y: 0
+  center_x: 64
+  center_y: 64
 }
 
 sprites {

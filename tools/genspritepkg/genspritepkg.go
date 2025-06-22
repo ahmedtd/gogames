@@ -107,9 +107,11 @@ var textprotoBytes []byte
 //go:embed {{.SpriteSheet.ImagePath}}
 var texturePNG []byte
 
-{{range .SpriteSheet.Sprites}}
-const {{.CodeName}} int = {{.Index}}
+const (
+{{range .SpriteSheet.Sprites -}}
+{{.CodeName}} int = {{.Index}}
 {{end}}
+)
 
 var Sheet *spritesheet.T
 func Load() error {

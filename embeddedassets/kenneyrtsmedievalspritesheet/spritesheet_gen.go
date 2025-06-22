@@ -18,257 +18,134 @@ var textprotoBytes []byte
 //go:embed medievalRTS_spritesheet@2.png
 var texturePNG []byte
 
-const TREE_TALL int = 0
-
-const TREE_CONIFER int = 1
-
-const TREE_CONIFER_LARGE int = 2
-
-const STUMP int = 3
-
-const LOG int = 4
-
-const MEDIEVALENVIRONMENT_06 int = 5
-
-const MEDIEVALENVIRONMENT_07 int = 6
-
-const MEDIEVALENVIRONMENT_08 int = 7
-
-const MEDIEVALENVIRONMENT_09 int = 8
-
-const MEDIEVALENVIRONMENT_10 int = 9
-
-const MEDIEVALENVIRONMENT_11 int = 10
-
-const MEDIEVALENVIRONMENT_12 int = 11
-
-const MEDIEVALENVIRONMENT_13 int = 12
-
-const MEDIEVALENVIRONMENT_14 int = 13
-
-const MEDIEVALENVIRONMENT_15 int = 14
-
-const MEDIEVALENVIRONMENT_16 int = 15
-
-const MEDIEVALENVIRONMENT_17 int = 16
-
-const MEDIEVALENVIRONMENT_18 int = 17
-
-const MEDIEVALENVIRONMENT_19 int = 18
-
-const MEDIEVALENVIRONMENT_20 int = 19
-
-const MEDIEVALENVIRONMENT_21 int = 20
-
-const MEDIEVALSTRUCTURE_01 int = 21
-
-const MEDIEVALSTRUCTURE_02 int = 22
-
-const MEDIEVALSTRUCTURE_03 int = 23
-
-const MEDIEVALSTRUCTURE_04 int = 24
-
-const MEDIEVALSTRUCTURE_05 int = 25
-
-const MEDIEVALSTRUCTURE_06 int = 26
-
-const MEDIEVALSTRUCTURE_07 int = 27
-
-const MEDIEVALSTRUCTURE_08 int = 28
-
-const MEDIEVALSTRUCTURE_09 int = 29
-
-const MEDIEVALSTRUCTURE_10 int = 30
-
-const MEDIEVALSTRUCTURE_11 int = 31
-
-const MEDIEVALSTRUCTURE_12 int = 32
-
-const MEDIEVALSTRUCTURE_13 int = 33
-
-const MEDIEVALSTRUCTURE_14 int = 34
-
-const MEDIEVALSTRUCTURE_15 int = 35
-
-const MEDIEVALSTRUCTURE_16 int = 36
-
-const MEDIEVALSTRUCTURE_17 int = 37
-
-const MEDIEVALSTRUCTURE_18 int = 38
-
-const MEDIEVALSTRUCTURE_19 int = 39
-
-const MEDIEVALSTRUCTURE_20 int = 40
-
-const MEDIEVALSTRUCTURE_21 int = 41
-
-const MEDIEVALSTRUCTURE_22 int = 42
-
-const MEDIEVALSTRUCTURE_23 int = 43
-
-const TILE_SAND int = 44
-
-const MEDIEVALTILE_02 int = 45
-
-const MEDIEVALTILE_03 int = 46
-
-const MEDIEVALTILE_04 int = 47
-
-const MEDIEVALTILE_05 int = 48
-
-const MEDIEVALTILE_06 int = 49
-
-const MEDIEVALTILE_07 int = 50
-
-const MEDIEVALTILE_08 int = 51
-
-const MEDIEVALTILE_09 int = 52
-
-const MEDIEVALTILE_10 int = 53
-
-const MEDIEVALTILE_11 int = 54
-
-const MEDIEVALTILE_12 int = 55
-
-const MEDIEVALTILE_13 int = 56
-
-const MEDIEVALTILE_14 int = 57
-
-const MEDIEVALTILE_15 int = 58
-
-const MEDIEVALTILE_16 int = 59
-
-const MEDIEVALTILE_17 int = 60
-
-const MEDIEVALTILE_18 int = 61
-
-const MEDIEVALTILE_19 int = 62
-
-const MEDIEVALTILE_20 int = 63
-
-const MEDIEVALTILE_21 int = 64
-
-const MEDIEVALTILE_22 int = 65
-
-const MEDIEVALTILE_23 int = 66
-
-const MEDIEVALTILE_24 int = 67
-
-const MEDIEVALTILE_25 int = 68
-
-const MEDIEVALTILE_26 int = 69
-
-const MEDIEVALTILE_27 int = 70
-
-const MEDIEVALTILE_28 int = 71
-
-const MEDIEVALTILE_29 int = 72
-
-const MEDIEVALTILE_30 int = 73
-
-const MEDIEVALTILE_31 int = 74
-
-const MEDIEVALTILE_32 int = 75
-
-const MEDIEVALTILE_33 int = 76
-
-const MEDIEVALTILE_34 int = 77
-
-const MEDIEVALTILE_35 int = 78
-
-const MEDIEVALTILE_36 int = 79
-
-const MEDIEVALTILE_37 int = 80
-
-const MEDIEVALTILE_38 int = 81
-
-const MEDIEVALTILE_39 int = 82
-
-const MEDIEVALTILE_40 int = 83
-
-const MEDIEVALTILE_41 int = 84
-
-const MEDIEVALTILE_42 int = 85
-
-const MEDIEVALTILE_43 int = 86
-
-const MEDIEVALTILE_44 int = 87
-
-const MEDIEVALTILE_45 int = 88
-
-const MEDIEVALTILE_46 int = 89
-
-const MEDIEVALTILE_47 int = 90
-
-const MEDIEVALTILE_48 int = 91
-
-const MEDIEVALTILE_49 int = 92
-
-const MEDIEVALTILE_50 int = 93
-
-const MEDIEVALTILE_51 int = 94
-
-const MEDIEVALTILE_52 int = 95
-
-const MEDIEVALTILE_53 int = 96
-
-const MEDIEVALTILE_54 int = 97
-
-const MEDIEVALTILE_55 int = 98
-
-const MEDIEVALTILE_56 int = 99
-
-const MEDIEVALTILE_57 int = 100
-
-const MEDIEVALTILE_58 int = 101
-
-const BLUE_WOMAN int = 102
-
-const BLUE_MAN int = 103
-
-const BLUE_CLERIC int = 104
-
-const BLUE_SPEARMAN int = 105
-
-const BLUE_HALBERDIER int = 106
-
-const BLUE_KING int = 107
-
-const RED_WOMAN int = 108
-
-const RED_MAN int = 109
-
-const RED_CLERIC int = 110
-
-const RED_SPEARMAN int = 111
-
-const RED_HALBERDIER int = 112
-
-const RED_KING int = 113
-
-const GREEN_WOMAN int = 114
-
-const GREEN_MAN int = 115
-
-const GREEN_CLERIC int = 116
-
-const GREEN_SPEARMAN int = 117
-
-const GREEN_HALBERDIER int = 118
-
-const GREEN_KING int = 119
-
-const GREY_WOMAN int = 120
-
-const GREY_MAN int = 121
-
-const GREY_CLERIC int = 122
-
-const GREY_SPEARMAN int = 123
-
-const GREY_HALBERDIER int = 124
-
-const GREY_KING int = 125
+const (
+	TREE_TALL                  int = 0
+	TREE_CONIFER               int = 1
+	TREE_CONIFER_LARGE         int = 2
+	STUMP                      int = 3
+	LOG                        int = 4
+	ROCK_SMALL                 int = 5
+	ROCK_LARGE                 int = 6
+	ROCK_PILE                  int = 7
+	ROCK_PILE_LARGE            int = 8
+	ROCK_PILE_LARGE_COPPER     int = 9
+	ROCK_PILE_LARGE_GOLD       int = 10
+	BUSH                       int = 11
+	BROWN_ROCK_SMALL           int = 12
+	BROWN_ROCK_LARGE           int = 13
+	BROWN_ROCK_PILE            int = 14
+	BROWN_ROCK_PILE_LARGE      int = 15
+	BROWN_ROCK_PILE_LARGE_IRON int = 16
+	BROWN_ROCK_PILE_LARGE_GOLD int = 17
+	BUSH_BERRIES               int = 18
+	FIRE                       int = 19
+	TREE_SMALL                 int = 20
+	RED_ROOF_TOWER_TOP         int = 21
+	CASTLE_TOP                 int = 22
+	HOUSE1                     int = 23
+	CHURCH_BASE                int = 24
+	STONE_TOWER_BASE           int = 25
+	CASTLE_BASE                int = 26
+	STORE_ADDON                int = 27
+	TOWER_NARROWING_MID        int = 28
+	HOUSE_LARGE                int = 29
+	STUCCO_TOWER_TOP           int = 30
+	STUCCO_TOWER_BASE          int = 31
+	FOUNTAIN                   int = 32
+	WINDMILLBLADE1             int = 33
+	WINDMILLBLADE2             int = 34
+	WINDMILLBLADE3             int = 35
+	SHED                       int = 36
+	HOUSE2                     int = 37
+	HOUSE3                     int = 38
+	BARN                       int = 39
+	HOUSE4                     int = 40
+	HOUSE6                     int = 41
+	STALL                      int = 42
+	CLOCKTOP                   int = 43
+	TILE_SAND1                 int = 44
+	TILE_SAND2                 int = 45
+	TILE_GRASS_ROAD_0DEG       int = 46
+	TILE_GRASS_ROAD_90DEG      int = 47
+	TILE_GRASS_CROSSROAD       int = 48
+	TILE_GRASS_TROAD_180DEG    int = 49
+	TILE_GRASS_TROAD_0DEG      int = 50
+	ROAD_STRAIGHT_0DEG         int = 51
+	ROAD_STRAIGHT_90DEG        int = 52
+	ROAD_CROSS                 int = 53
+	ROAD_T_180DEG              int = 54
+	ROAD_T_0DEG                int = 55
+	TILE_DIRT1                 int = 56
+	TILE_DIRT2                 int = 57
+	TILE_ROCK1                 int = 58
+	TILE_ROCK2                 int = 59
+	MEDIEVALTILE_17            int = 60
+	MEDIEVALTILE_18            int = 61
+	MEDIEVALTILE_19            int = 62
+	MEDIEVALTILE_20            int = 63
+	MEDIEVALTILE_21            int = 64
+	MEDIEVALTILE_22            int = 65
+	MEDIEVALTILE_23            int = 66
+	MEDIEVALTILE_24            int = 67
+	MEDIEVALTILE_25            int = 68
+	MEDIEVALTILE_26            int = 69
+	TILE_ICE1                  int = 70
+	TILE_ICE2                  int = 71
+	TILE_SNOW1                 int = 72
+	TILE_SNOW2                 int = 73
+	MEDIEVALTILE_31            int = 74
+	MEDIEVALTILE_32            int = 75
+	MEDIEVALTILE_33            int = 76
+	MEDIEVALTILE_34            int = 77
+	MEDIEVALTILE_35            int = 78
+	MEDIEVALTILE_36            int = 79
+	MEDIEVALTILE_37            int = 80
+	MEDIEVALTILE_38            int = 81
+	MEDIEVALTILE_39            int = 82
+	MEDIEVALTILE_40            int = 83
+	MEDIEVALTILE_41            int = 84
+	MEDIEVALTILE_42            int = 85
+	MEDIEVALTILE_43            int = 86
+	MEDIEVALTILE_44            int = 87
+	MEDIEVALTILE_45            int = 88
+	MEDIEVALTILE_46            int = 89
+	MEDIEVALTILE_47            int = 90
+	MEDIEVALTILE_48            int = 91
+	MEDIEVALTILE_49            int = 92
+	MEDIEVALTILE_50            int = 93
+	MEDIEVALTILE_51            int = 94
+	MEDIEVALTILE_52            int = 95
+	MEDIEVALTILE_53            int = 96
+	MEDIEVALTILE_54            int = 97
+	MEDIEVALTILE_55            int = 98
+	MEDIEVALTILE_56            int = 99
+	TILE_GRASS1                int = 100
+	TILE_GRASS2                int = 101
+	BLUE_WOMAN                 int = 102
+	BLUE_MAN                   int = 103
+	BLUE_CLERIC                int = 104
+	BLUE_SPEARMAN              int = 105
+	BLUE_HALBERDIER            int = 106
+	BLUE_KING                  int = 107
+	RED_WOMAN                  int = 108
+	RED_MAN                    int = 109
+	RED_CLERIC                 int = 110
+	RED_SPEARMAN               int = 111
+	RED_HALBERDIER             int = 112
+	RED_KING                   int = 113
+	GREEN_WOMAN                int = 114
+	GREEN_MAN                  int = 115
+	GREEN_CLERIC               int = 116
+	GREEN_SPEARMAN             int = 117
+	GREEN_HALBERDIER           int = 118
+	GREEN_KING                 int = 119
+	GREY_WOMAN                 int = 120
+	GREY_MAN                   int = 121
+	GREY_CLERIC                int = 122
+	GREY_SPEARMAN              int = 123
+	GREY_HALBERDIER            int = 124
+	GREY_KING                  int = 125
+)
 
 var Sheet *spritesheet.T
 
