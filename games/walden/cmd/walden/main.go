@@ -12,6 +12,7 @@ import (
 	"github.com/ahmedtd/gogames/embeddedassets/kenneyrtsmedievalspritesheet"
 	"github.com/ahmedtd/gogames/embeddedassets/simplespacespritesheet"
 	"github.com/ahmedtd/gogames/lib/viewport2"
+	"github.com/ahmedtd/gogames/lib/vmath/aabox2"
 	"github.com/ahmedtd/gogames/lib/vmath/mat22"
 	"github.com/ahmedtd/gogames/lib/vmath/mat33"
 	"github.com/ahmedtd/gogames/lib/vmath/vec2"
@@ -101,23 +102,7 @@ func (r *Renderer) Draw(screen *ebiten.Image) {
 	screenWidth, screenHeight := ebiten.WindowSize()
 	viewport.ComputeForFrame(screenWidth, screenHeight)
 
-	for i := 0; i < 10; i++ {
-		for j := 0; j < 10; j++ {
-			center := vec2.T{float64(i) + 0.5, float64(j) + 0.5}
-			tile := kenneyrtsmedievalspritesheet.TILE_DIRT1
-			if (i+j)%2 == 0 {
-				tile = kenneyrtsmedievalspritesheet.TILE_GRASS1
-			}
-			kenneyrtsmedievalspritesheet.Sheet.RenderAtWorldPosition(
-				screen,
-				tile,
-				viewport.WorldToScreenMatrix,
-				mat33.Transform2(1.0/128, mat22.Identity(), center),
-			)
-			tileScreenCenter := mat33.MulMV2(viewport.WorldToScreenMatrix, center)
-			vector.DrawFilledCircle(screen, float32(tileScreenCenter[0]), float32(tileScreenCenter[1]), 4, color.RGBA{255, 0, 0, 255}, true)
-		}
-	}
+	r.drawTerrain(screen, viewport, r.World.NextState.Terrain)
 
 	for _, ent := range r.World.NextState.Entities {
 		switch ent.Type {
@@ -125,7 +110,7 @@ func (r *Renderer) Draw(screen *ebiten.Image) {
 			modelToWorld := mat33.Transform2(1.0/128.0, ent.Orientation, ent.Position)
 			kenneyrtsmedievalspritesheet.Sheet.RenderAtWorldPosition(
 				screen,
-				kenneyrtsmedievalspritesheet.LOG,
+				kenneyrtsmedievalspritesheet.TREE_CONIFER_LARGE,
 				viewport.WorldToScreenMatrix,
 				modelToWorld,
 			)
@@ -134,6 +119,51 @@ func (r *Renderer) Draw(screen *ebiten.Image) {
 		if ent.Type != EntityTypeInvalid {
 			entScreenCenter := mat33.MulMV2(viewport.WorldToScreenMatrix, ent.Position)
 			vector.DrawFilledCircle(screen, float32(entScreenCenter[0]), float32(entScreenCenter[1]), 4, color.RGBA{0, 255, 0, 255}, true)
+		}
+	}
+
+	originScreenCenter := mat33.MulMV2(viewport.WorldToScreenMatrix, vec2.T{0, 0})
+	vector.DrawFilledCircle(screen, float32(originScreenCenter[0]), float32(originScreenCenter[1]), 4, color.RGBA{0, 0, 255, 255}, true)
+}
+
+func (r *Renderer) drawTerrain(screen *ebiten.Image, viewport viewport2.Viewport, ter *Terrain) {
+	for r := 0; r < ter.MaxY-ter.MinY; r++ {
+		for c := 0; c < ter.MaxX-ter.MinX; c++ {
+			center := vec2.T{float64(r+ter.MinY) + 0.5, float64(c+ter.MinX) + 0.5}
+
+			tileBox := aabox2.T{
+				Lo: vec2.T{center[0] - 0.5, center[1] - 0.5},
+				Hi: vec2.T{center[0] + 0.5, center[1] + 0.5},
+			}
+
+			if !aabox2.Intersects(&viewport.WorldAABox, &tileBox) {
+				continue
+			}
+
+			tileIndex := r*(ter.MaxX-ter.MinX) + c
+
+			tileSprite := -1
+			switch ter.Tiles[tileIndex] {
+			case TerrainTypeDirt:
+				tileSprite = kenneyrtsmedievalspritesheet.TILE_DIRT1
+			case TerrainTypeGrass:
+				tileSprite = kenneyrtsmedievalspritesheet.TILE_GRASS1
+			case TerrainTypeSand:
+				tileSprite = kenneyrtsmedievalspritesheet.TILE_SAND1
+			case TerrainTypeStone:
+				tileSprite = kenneyrtsmedievalspritesheet.TILE_ROCK1
+			case TerrainTypeIce:
+				tileSprite = kenneyrtsmedievalspritesheet.TILE_ICE1
+			}
+
+			kenneyrtsmedievalspritesheet.Sheet.RenderAtWorldPosition(
+				screen,
+				tileSprite,
+				viewport.WorldToScreenMatrix,
+				mat33.Transform2(1.0/128, mat22.Identity(), center),
+			)
+			tileScreenCenter := mat33.MulMV2(viewport.WorldToScreenMatrix, center)
+			vector.DrawFilledCircle(screen, float32(tileScreenCenter[0]), float32(tileScreenCenter[1]), 4, color.RGBA{255, 0, 0, 255}, true)
 		}
 	}
 }
@@ -153,6 +183,8 @@ type World struct {
 
 func BuildInitialWorld() *World {
 	initialWorldState := &WorldState{}
+
+	initialWorldState.Terrain = GenerateTerrain()
 
 	// Place trees
 	treeRNG := rand.New(rand.NewChaCha8([32]byte{}))
@@ -224,6 +256,8 @@ type WorldState struct {
 	CurSimTime  int64
 	CurRealTime time.Time
 
+	Terrain *Terrain
+
 	Entities []*Entity
 
 	Viewport viewport2.Viewport
@@ -234,6 +268,8 @@ func (w *WorldState) Clone() *WorldState {
 	out.CurStep = w.CurStep
 	out.CurSimTime = w.CurSimTime
 	out.CurRealTime = w.CurRealTime
+
+	out.Terrain = w.Terrain.Clone()
 
 	out.Entities = make([]*Entity, len(w.Entities))
 	for i := range w.Entities {
@@ -249,6 +285,50 @@ func (w *WorldState) Clone() *WorldState {
 	}
 
 	out.Viewport = w.Viewport
+	return out
+}
+
+type TerrainType int
+
+const (
+	TerrainTypeDirt TerrainType = iota
+	TerrainTypeGrass
+	TerrainTypeSand
+	TerrainTypeStone
+	TerrainTypeIce
+)
+
+type Terrain struct {
+	MinX, MaxX int
+	MinY, MaxY int
+
+	Tiles []TerrainType
+}
+
+func GenerateTerrain() *Terrain {
+	ret := &Terrain{}
+
+	ret.MinX = -20
+	ret.MaxX = 20
+
+	ret.MinY = -20
+	ret.MaxY = 20
+
+	ret.Tiles = make([]TerrainType, (ret.MaxX-ret.MinX)*(ret.MaxY-ret.MinY))
+	return ret
+}
+
+func (t *Terrain) Clone() *Terrain {
+	out := &Terrain{}
+
+	out.MinX = t.MinX
+	out.MaxX = t.MaxX
+	out.MinY = t.MinY
+	out.MaxY = t.MaxY
+
+	out.Tiles = make([]TerrainType, len(t.Tiles))
+	copy(out.Tiles, t.Tiles)
+
 	return out
 }
 

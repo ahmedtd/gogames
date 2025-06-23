@@ -36,10 +36,10 @@ func (v *Viewport) ComputeForFrame(screenWidthPixels, screenHeightPixels int) {
 	v.ScreenToWorldMatrix = mat33.Inverse(worldToScreen)
 
 	v.WorldAABox = aabox2.OfPoints(
-		vec2.T{0, 0},
-		vec2.T{0, float64(screenHeightPixels)},
-		vec2.T{float64(screenWidthPixels), 0},
-		vec2.T{float64(screenWidthPixels), float64(screenHeightPixels)},
+		mat33.MulMV2(v.ScreenToWorldMatrix, vec2.T{0, 0}),
+		mat33.MulMV2(v.ScreenToWorldMatrix, vec2.T{0, float64(screenHeightPixels)}),
+		mat33.MulMV2(v.ScreenToWorldMatrix, vec2.T{float64(screenWidthPixels), 0}),
+		mat33.MulMV2(v.ScreenToWorldMatrix, vec2.T{float64(screenWidthPixels), float64(screenHeightPixels)}),
 	)
 }
 

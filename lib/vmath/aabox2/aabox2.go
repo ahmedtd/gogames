@@ -30,3 +30,10 @@ func OfPoints(points ...vec2.T) T {
 	}
 	return ret
 }
+
+func Intersects(a, b *T) bool {
+	return !(a.Lo[0] > b.Hi[0] ||
+		b.Lo[0] > a.Hi[0] ||
+		a.Lo[1] > b.Hi[1] ||
+		b.Lo[1] > a.Hi[1])
+}
