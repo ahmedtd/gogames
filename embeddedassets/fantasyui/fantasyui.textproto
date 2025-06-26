@@ -386,8 +386,8 @@ sprites {
   y: 336
   width: 16
   height: 32
-  center_x: 0
-  center_y: 0
+  center_x: 8
+  center_y: 25
 }
 
 sprites {
@@ -396,8 +396,8 @@ sprites {
   y: 368
   width: 16
   height: 32
-  center_x: 0
-  center_y: 0
+  center_x: 8
+  center_y: 25
 }
 
 sprites {
@@ -406,8 +406,8 @@ sprites {
   y: 400
   width: 16
   height: 32
-  center_x: 0
-  center_y: 0
+  center_x: 8
+  center_y: 25
 }
 
 sprites {
@@ -416,8 +416,8 @@ sprites {
   y: 1120
   width: 32
   height: 32
-  center_x: 0
-  center_y: 0
+  center_x: 16
+  center_y: 16
 }
 
 sprites {
@@ -426,8 +426,8 @@ sprites {
   y: 1120
   width: 32
   height: 32
-  center_x: 0
-  center_y: 0
+  center_x: 16
+  center_y: 16
 }
 
 sprites {
@@ -436,8 +436,8 @@ sprites {
   y: 1120
   width: 32
   height: 32
-  center_x: 0
-  center_y: 0
+  center_x: 16
+  center_y: 16
 }
 
 sprites {
@@ -446,8 +446,8 @@ sprites {
   y: 1168
   width: 32
   height: 32
-  center_x: 0
-  center_y: 0
+  center_x: 16
+  center_y: 16
 }
 
 sprites {
@@ -456,8 +456,8 @@ sprites {
   y: 1120
   width: 32
   height: 32
-  center_x: 0
-  center_y: 0
+  center_x: 16
+  center_y: 16
 }
 
 sprites {
@@ -466,8 +466,8 @@ sprites {
   y: 1120
   width: 32
   height: 32
-  center_x: 0
-  center_y: 0
+  center_x: 16
+  center_y: 16
 }
 
 sprites {

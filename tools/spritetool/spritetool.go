@@ -139,8 +139,9 @@ func (c *ViewCommand) Draw(screen *ebiten.Image) {
 		Orientation:        mat22.Identity(),
 		PixelsPerWorldUnit: 50.0,
 	}
-	viewport.ScreenWidthPixels, viewport.ScreenHeightPixels = ebiten.WindowSize()
-	worldToScreen := viewport.WorldToScreenMatrix()
+	screenWidthPixels, screenHeightPixels := ebiten.WindowSize()
+	viewport.ComputeForFrame(screenWidthPixels, screenHeightPixels)
+	worldToScreen := viewport.WorldToScreenMatrix
 
 	if c.sheet == nil {
 	} else if len(c.sheet.Proto.GetSprites()) == 0 {
