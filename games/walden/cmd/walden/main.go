@@ -4,11 +4,11 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"image/color"
 	"log"
 	"math/rand/v2"
 	"time"
 
+	"github.com/ahmedtd/gogames/embeddedassets/fantasyui"
 	"github.com/ahmedtd/gogames/embeddedassets/kenneyrtsmedievalspritesheet"
 	"github.com/ahmedtd/gogames/embeddedassets/simplespacespritesheet"
 	"github.com/ahmedtd/gogames/lib/viewport2"
@@ -18,7 +18,6 @@ import (
 	"github.com/ahmedtd/gogames/lib/vmath/vec2"
 
 	"github.com/hajimehoshi/ebiten/v2"
-	"github.com/hajimehoshi/ebiten/v2/vector"
 )
 
 func main() {
@@ -38,6 +37,10 @@ func do(ctx context.Context) error {
 
 	if err := simplespacespritesheet.Load(); err != nil {
 		return fmt.Errorf("while loading simplespacespritesheet: %w", err)
+	}
+
+	if err := fantasyui.Load(); err != nil {
+		return fmt.Errorf("while loading fantasyui: %w", err)
 	}
 
 	world := BuildInitialWorld()
@@ -117,13 +120,10 @@ func (r *Renderer) Draw(screen *ebiten.Image) {
 		}
 
 		if ent.Type != EntityTypeInvalid {
-			entScreenCenter := mat33.MulMV2(viewport.WorldToScreenMatrix, ent.Position)
-			vector.DrawFilledCircle(screen, float32(entScreenCenter[0]), float32(entScreenCenter[1]), 4, color.RGBA{0, 255, 0, 255}, true)
+			modelToWorld := mat33.Transform2(1.0/128.0, ent.Orientation, ent.Position)
+			fantasyui.Sheet.RenderAtWorldPosition(screen, fantasyui.MINIMAP_ICON_JEWEL_REDIMG, viewport.WorldToScreenMatrix, modelToWorld)
 		}
 	}
-
-	originScreenCenter := mat33.MulMV2(viewport.WorldToScreenMatrix, vec2.T{0, 0})
-	vector.DrawFilledCircle(screen, float32(originScreenCenter[0]), float32(originScreenCenter[1]), 4, color.RGBA{0, 0, 255, 255}, true)
 }
 
 func (r *Renderer) drawTerrain(screen *ebiten.Image, viewport viewport2.Viewport, ter *Terrain) {
@@ -162,8 +162,6 @@ func (r *Renderer) drawTerrain(screen *ebiten.Image, viewport viewport2.Viewport
 				viewport.WorldToScreenMatrix,
 				mat33.Transform2(1.0/128, mat22.Identity(), center),
 			)
-			//tileScreenCenter := mat33.MulMV2(viewport.WorldToScreenMatrix, center)
-			//vector.DrawFilledCircle(screen, float32(tileScreenCenter[0]), float32(tileScreenCenter[1]), 4, color.RGBA{255, 0, 0, 255}, true)
 		}
 	}
 }
