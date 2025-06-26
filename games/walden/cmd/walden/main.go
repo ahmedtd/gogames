@@ -162,8 +162,8 @@ func (r *Renderer) drawTerrain(screen *ebiten.Image, viewport viewport2.Viewport
 				viewport.WorldToScreenMatrix,
 				mat33.Transform2(1.0/128, mat22.Identity(), center),
 			)
-			tileScreenCenter := mat33.MulMV2(viewport.WorldToScreenMatrix, center)
-			vector.DrawFilledCircle(screen, float32(tileScreenCenter[0]), float32(tileScreenCenter[1]), 4, color.RGBA{255, 0, 0, 255}, true)
+			//tileScreenCenter := mat33.MulMV2(viewport.WorldToScreenMatrix, center)
+			//vector.DrawFilledCircle(screen, float32(tileScreenCenter[0]), float32(tileScreenCenter[1]), 4, color.RGBA{255, 0, 0, 255}, true)
 		}
 	}
 }

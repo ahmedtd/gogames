@@ -1,0 +1,1282 @@
+image_path: "fantasyui.png"
+
+sprites {
+  name: "banner_classic_curtainimg"
+  x: 0
+  y: 128
+  width: 512
+  height: 128
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "banner_hangingimg"
+  x: 0
+  y: 0
+  width: 512
+  height: 128
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "banner_modernimg"
+  x: 0
+  y: 256
+  width: 512
+  height: 96
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "button_brown_closeimg"
+  x: 192
+  y: 1152
+  width: 96
+  height: 48
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "button_brownimg"
+  x: 288
+  y: 1152
+  width: 96
+  height: 48
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "button_grey_closeimg"
+  x: 384
+  y: 1152
+  width: 96
+  height: 48
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "button_greyimg"
+  x: 480
+  y: 1152
+  width: 96
+  height: 48
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "button_red_closeimg"
+  x: 0
+  y: 1152
+  width: 96
+  height: 48
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "button_redimg"
+  x: 96
+  y: 1152
+  width: 96
+  height: 48
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "checkbox_beige_checkedimg"
+  x: 916
+  y: 1152
+  width: 48
+  height: 48
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "checkbox_beige_crossimg"
+  x: 964
+  y: 1152
+  width: 48
+  height: 48
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "checkbox_beige_emptyimg"
+  x: 628
+  y: 1152
+  width: 48
+  height: 48
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "checkbox_brown_checkedimg"
+  x: 676
+  y: 1152
+  width: 48
+  height: 48
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "checkbox_brown_crossimg"
+  x: 772
+  y: 1152
+  width: 48
+  height: 48
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "checkbox_brown_emptyimg"
+  x: 724
+  y: 1152
+  width: 48
+  height: 48
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "checkbox_grey_checkedimg"
+  x: 1012
+  y: 1152
+  width: 48
+  height: 48
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "checkbox_grey_crossimg"
+  x: 820
+  y: 1152
+  width: 48
+  height: 48
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "checkbox_grey_emptyimg"
+  x: 868
+  y: 1152
+  width: 48
+  height: 48
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "hexagon_brown_darkimg"
+  x: 992
+  y: 896
+  width: 96
+  height: 128
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "hexagon_brownimg"
+  x: 992
+  y: 1024
+  width: 96
+  height: 128
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "hexagon_damaged_brown_darkimg"
+  x: 896
+  y: 896
+  width: 96
+  height: 128
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "hexagon_damaged_brownimg"
+  x: 896
+  y: 1024
+  width: 96
+  height: 128
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "hexagon_grey_darkimg"
+  x: 1024
+  y: 256
+  width: 96
+  height: 128
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "hexagon_grey_greenimg"
+  x: 1024
+  y: 384
+  width: 96
+  height: 128
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "hexagon_grey_redimg"
+  x: 1024
+  y: 0
+  width: 96
+  height: 128
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "hexagon_greyimg"
+  x: 1024
+  y: 128
+  width: 96
+  height: 128
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "minimap_arrow_aimg"
+  x: 128
+  y: 1120
+  width: 32
+  height: 32
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "minimap_arrow_bimg"
+  x: 96
+  y: 1120
+  width: 32
+  height: 32
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "minimap_arrow_cimg"
+  x: 1152
+  y: 304
+  width: 24
+  height: 32
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "minimap_arrow_dimg"
+  x: 1120
+  y: 1072
+  width: 32
+  height: 32
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "minimap_compass_future_eimg"
+  x: 1088
+  y: 728
+  width: 40
+  height: 44
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "minimap_compass_future_nimg"
+  x: 1088
+  y: 640
+  width: 40
+  height: 44
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "minimap_compass_future_simg"
+  x: 1088
+  y: 684
+  width: 40
+  height: 44
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "minimap_compass_future_wimg"
+  x: 1088
+  y: 772
+  width: 40
+  height: 44
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "minimap_compass_toon_eimg"
+  x: 1152
+  y: 816
+  width: 32
+  height: 40
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "minimap_compass_toon_nimg"
+  x: 1060
+  y: 1152
+  width: 40
+  height: 40
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "minimap_compass_toon_simg"
+  x: 1088
+  y: 960
+  width: 32
+  height: 40
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "minimap_compass_toon_wimg"
+  x: 576
+  y: 1152
+  width: 52
+  height: 40
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "minimap_icon_exclamation_redimg"
+  x: 1152
+  y: 336
+  width: 16
+  height: 32
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "minimap_icon_exclamation_whiteimg"
+  x: 1152
+  y: 368
+  width: 16
+  height: 32
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "minimap_icon_exclamation_yellowimg"
+  x: 1152
+  y: 400
+  width: 16
+  height: 32
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "minimap_icon_jewel_redimg"
+  x: 480
+  y: 1120
+  width: 32
+  height: 32
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "minimap_icon_jewel_whiteimg"
+  x: 0
+  y: 1120
+  width: 32
+  height: 32
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "minimap_icon_jewel_yellowimg"
+  x: 416
+  y: 1120
+  width: 32
+  height: 32
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "minimap_icon_star_redimg"
+  x: 1132
+  y: 1168
+  width: 32
+  height: 32
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "minimap_icon_star_whiteimg"
+  x: 384
+  y: 1120
+  width: 32
+  height: 32
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "minimap_icon_star_yellowimg"
+  x: 32
+  y: 1120
+  width: 32
+  height: 32
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "minimap_ring_brown_detailimg"
+  x: 0
+  y: 352
+  width: 256
+  height: 256
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "minimap_ring_brownimg"
+  x: 256
+  y: 608
+  width: 256
+  height: 256
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "minimap_ring_grey_detailimg"
+  x: 0
+  y: 608
+  width: 256
+  height: 256
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "minimap_ring_greyimg"
+  x: 0
+  y: 864
+  width: 256
+  height: 256
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "minimap_ring_whiteimg"
+  x: 256
+  y: 352
+  width: 256
+  height: 256
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "panel_border_brown_detailimg"
+  x: 384
+  y: 992
+  width: 128
+  height: 128
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "panel_border_brownimg"
+  x: 512
+  y: 1024
+  width: 128
+  height: 128
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "panel_border_grey_detailimg"
+  x: 640
+  y: 0
+  width: 128
+  height: 128
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "panel_border_greyimg"
+  x: 640
+  y: 128
+  width: 128
+  height: 128
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "panel_brown_arrows_dark_detailimg"
+  x: 640
+  y: 256
+  width: 128
+  height: 128
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "panel_brown_arrows_darkimg"
+  x: 640
+  y: 384
+  width: 128
+  height: 128
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "panel_brown_arrows_detailimg"
+  x: 640
+  y: 512
+  width: 128
+  height: 128
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "panel_brown_arrowsimg"
+  x: 256
+  y: 992
+  width: 128
+  height: 128
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "panel_brown_corners_aimg"
+  x: 640
+  y: 640
+  width: 128
+  height: 128
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "panel_brown_corners_bimg"
+  x: 640
+  y: 768
+  width: 128
+  height: 128
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "panel_brown_damaged_darkimg"
+  x: 384
+  y: 864
+  width: 128
+  height: 128
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "panel_brown_damagedimg"
+  x: 896
+  y: 768
+  width: 128
+  height: 128
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "panel_brown_dark_corners_aimg"
+  x: 256
+  y: 864
+  width: 128
+  height: 128
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "panel_brown_dark_corners_bimg"
+  x: 640
+  y: 1024
+  width: 128
+  height: 128
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "panel_brown_darkimg"
+  x: 768
+  y: 0
+  width: 128
+  height: 128
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "panel_brownimg"
+  x: 768
+  y: 128
+  width: 128
+  height: 128
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "panel_grey_blueimg"
+  x: 768
+  y: 256
+  width: 128
+  height: 128
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "panel_grey_bolts_blueimg"
+  x: 768
+  y: 384
+  width: 128
+  height: 128
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "panel_grey_bolts_darkimg"
+  x: 768
+  y: 512
+  width: 128
+  height: 128
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "panel_grey_bolts_detail_aimg"
+  x: 768
+  y: 640
+  width: 128
+  height: 128
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "panel_grey_bolts_detail_bimg"
+  x: 768
+  y: 768
+  width: 128
+  height: 128
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "panel_grey_bolts_greenimg"
+  x: 768
+  y: 896
+  width: 128
+  height: 128
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "panel_grey_bolts_redimg"
+  x: 768
+  y: 1024
+  width: 128
+  height: 128
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "panel_grey_boltsimg"
+  x: 896
+  y: 0
+  width: 128
+  height: 128
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "panel_grey_darkimg"
+  x: 896
+  y: 128
+  width: 128
+  height: 128
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "panel_grey_greenimg"
+  x: 896
+  y: 256
+  width: 128
+  height: 128
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "panel_grey_redimg"
+  x: 896
+  y: 384
+  width: 128
+  height: 128
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "panel_greyimg"
+  x: 896
+  y: 512
+  width: 128
+  height: 128
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "panel_grid_blueprintimg"
+  x: 896
+  y: 640
+  width: 128
+  height: 128
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "panel_grid_paperimg"
+  x: 640
+  y: 896
+  width: 128
+  height: 128
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "pattern_diagonal_grey_largeimg"
+  x: 1088
+  y: 576
+  width: 64
+  height: 64
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "pattern_diagonal_grey_smallimg"
+  x: 1088
+  y: 512
+  width: 64
+  height: 64
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "pattern_diagonal_red_largeimg"
+  x: 1024
+  y: 832
+  width: 64
+  height: 64
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "pattern_diagonal_red_smallimg"
+  x: 1024
+  y: 768
+  width: 64
+  height: 64
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "pattern_diagonal_transparent_largeimg"
+  x: 1024
+  y: 704
+  width: 64
+  height: 64
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "pattern_diagonal_transparent_smallimg"
+  x: 1024
+  y: 640
+  width: 64
+  height: 64
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "pattern_grid_blueprintimg"
+  x: 1024
+  y: 576
+  width: 64
+  height: 64
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "pattern_grid_paperimg"
+  x: 1024
+  y: 512
+  width: 64
+  height: 64
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "progress_blue_borderimg"
+  x: 1120
+  y: 384
+  width: 32
+  height: 64
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "progress_blue_small_borderimg"
+  x: 256
+  y: 1120
+  width: 32
+  height: 32
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "progress_blue_smallimg"
+  x: 224
+  y: 1120
+  width: 32
+  height: 32
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "progress_blueimg"
+  x: 1120
+  y: 320
+  width: 32
+  height: 64
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "progress_green_borderimg"
+  x: 1120
+  y: 256
+  width: 32
+  height: 64
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "progress_green_small_borderimg"
+  x: 192
+  y: 1120
+  width: 32
+  height: 32
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "progress_green_smallimg"
+  x: 160
+  y: 1120
+  width: 32
+  height: 32
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "progress_greenimg"
+  x: 1120
+  y: 192
+  width: 32
+  height: 64
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "progress_red_borderimg"
+  x: 1120
+  y: 128
+  width: 32
+  height: 64
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "progress_red_small_borderimg"
+  x: 64
+  y: 1120
+  width: 32
+  height: 32
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "progress_red_smallimg"
+  x: 448
+  y: 1120
+  width: 32
+  height: 32
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "progress_redimg"
+  x: 1132
+  y: 1104
+  width: 32
+  height: 64
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "progress_transparent_smallimg"
+  x: 352
+  y: 1120
+  width: 32
+  height: 32
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "progress_transparentimg"
+  x: 1128
+  y: 704
+  width: 32
+  height: 64
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "progress_white_borderimg"
+  x: 1128
+  y: 640
+  width: 32
+  height: 64
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "progress_white_small_borderimg"
+  x: 320
+  y: 1120
+  width: 32
+  height: 32
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "progress_white_smallimg"
+  x: 288
+  y: 1120
+  width: 32
+  height: 32
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "progress_whiteimg"
+  x: 1120
+  y: 448
+  width: 32
+  height: 64
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "round_brown_darkimg"
+  x: 512
+  y: 896
+  width: 128
+  height: 128
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "round_brownimg"
+  x: 512
+  y: 768
+  width: 128
+  height: 128
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "round_damaged_brown_darkimg"
+  x: 512
+  y: 640
+  width: 128
+  height: 128
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "round_damaged_brownimg"
+  x: 512
+  y: 512
+  width: 128
+  height: 128
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "round_grey_darkimg"
+  x: 512
+  y: 384
+  width: 128
+  height: 128
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "round_grey_detailed_greenimg"
+  x: 512
+  y: 256
+  width: 128
+  height: 128
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "round_grey_detailed_redimg"
+  x: 512
+  y: 128
+  width: 128
+  height: 128
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "round_greyimg"
+  x: 512
+  y: 0
+  width: 128
+  height: 128
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "scrollbar_brown_smallimg"
+  x: 1100
+  y: 1128
+  width: 32
+  height: 48
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "scrollbar_brownimg"
+  x: 1120
+  y: 944
+  width: 32
+  height: 128
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "scrollbar_future_grey_smallimg"
+  x: 1128
+  y: 768
+  width: 32
+  height: 48
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "scrollbar_future_greyimg"
+  x: 1152
+  y: 0
+  width: 32
+  height: 128
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "scrollbar_future_red_smallimg"
+  x: 1088
+  y: 864
+  width: 32
+  height: 48
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "scrollbar_future_redimg"
+  x: 1088
+  y: 1000
+  width: 32
+  height: 128
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "scrollbar_future_transparent_smallimg"
+  x: 1088
+  y: 912
+  width: 32
+  height: 48
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "scrollbar_future_transparentimg"
+  x: 1120
+  y: 0
+  width: 32
+  height: 128
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "scrollbar_grey_smallimg"
+  x: 1088
+  y: 816
+  width: 32
+  height: 48
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "scrollbar_greyimg"
+  x: 1120
+  y: 816
+  width: 32
+  height: 128
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "scrollbar_transparent_smallimg"
+  x: 1152
+  y: 128
+  width: 32
+  height: 48
+  center_x: 0
+  center_y: 0
+}
+
+sprites {
+  name: "scrollbar_transparentimg"
+  x: 1152
+  y: 176
+  width: 32
+  height: 128
+  center_x: 0
+  center_y: 0
+}
+
