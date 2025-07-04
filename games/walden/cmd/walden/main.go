@@ -111,9 +111,76 @@ func (r *Renderer) Draw(screen *ebiten.Image) {
 		switch ent.Type {
 		case EntityTypeTree:
 			modelToWorld := mat33.Transform2(1.0/128.0, ent.Orientation, ent.Position)
+			var sprite int
+			switch ent.Variant {
+			case 0:
+				sprite = kenneyrtsmedievalspritesheet.TREE_SMALL
+			case 1:
+				sprite = kenneyrtsmedievalspritesheet.TREE_TALL
+			case 2:
+				sprite = kenneyrtsmedievalspritesheet.TREE_CONIFER
+			case 3:
+				sprite = kenneyrtsmedievalspritesheet.TREE_CONIFER_LARGE
+			}
 			kenneyrtsmedievalspritesheet.Sheet.RenderAtWorldPosition(
 				screen,
-				kenneyrtsmedievalspritesheet.TREE_CONIFER_LARGE,
+				sprite,
+				viewport.WorldToScreenMatrix,
+				modelToWorld,
+			)
+		case EntityTypeBush:
+			modelToWorld := mat33.Transform2(1.0/128.0, ent.Orientation, ent.Position)
+			if ent.AmountBerries > 0 {
+				kenneyrtsmedievalspritesheet.Sheet.RenderAtWorldPosition(
+					screen,
+					kenneyrtsmedievalspritesheet.BUSH_BERRIES,
+					viewport.WorldToScreenMatrix,
+					modelToWorld,
+				)
+			} else {
+				kenneyrtsmedievalspritesheet.Sheet.RenderAtWorldPosition(
+					screen,
+					kenneyrtsmedievalspritesheet.BUSH,
+					viewport.WorldToScreenMatrix,
+					modelToWorld,
+				)
+			}
+		case EntityTypeWoman:
+			modelToWorld := mat33.Transform2(1.0/128.0, ent.Orientation, ent.Position)
+			kenneyrtsmedievalspritesheet.Sheet.RenderAtWorldPosition(
+				screen,
+				kenneyrtsmedievalspritesheet.GREY_WOMAN,
+				viewport.WorldToScreenMatrix,
+				modelToWorld,
+			)
+		case EntityTypeMan:
+			modelToWorld := mat33.Transform2(1.0/128.0, ent.Orientation, ent.Position)
+			kenneyrtsmedievalspritesheet.Sheet.RenderAtWorldPosition(
+				screen,
+				kenneyrtsmedievalspritesheet.GREY_MAN,
+				viewport.WorldToScreenMatrix,
+				modelToWorld,
+			)
+		case EntityTypeHouse:
+			modelToWorld := mat33.Transform2(1.0/128.0, ent.Orientation, ent.Position)
+			var sprite int
+			switch ent.Variant {
+			case 0:
+				sprite = kenneyrtsmedievalspritesheet.HOUSE1
+			case 1:
+				sprite = kenneyrtsmedievalspritesheet.HOUSE2
+			}
+			kenneyrtsmedievalspritesheet.Sheet.RenderAtWorldPosition(
+				screen,
+				sprite,
+				viewport.WorldToScreenMatrix,
+				modelToWorld,
+			)
+		case EntityTypeBarn:
+			modelToWorld := mat33.Transform2(1.0/128.0, ent.Orientation, ent.Position)
+			kenneyrtsmedievalspritesheet.Sheet.RenderAtWorldPosition(
+				screen,
+				kenneyrtsmedievalspritesheet.BARN,
 				viewport.WorldToScreenMatrix,
 				modelToWorld,
 			)
@@ -179,31 +246,57 @@ type World struct {
 	TreeRNG *rand.Rand
 }
 
-func BuildInitialWorld() *World {
-	initialWorldState := &WorldState{}
+func BuildInitialWorld(seed [32]byte) *World {
+	ws := &WorldState{}
+	randSource := rand.NewChaCha8(seed)
+	rng := rand.New(randSource)
 
-	initialWorldState.Terrain = GenerateTerrain()
+	ws.Terrain = GenerateTerrain()
 
 	// Place trees
-	treeRNG := rand.New(rand.NewChaCha8([32]byte{}))
 	for i := 0; i < 30; i++ {
-		initialWorldState.Entities = append(initialWorldState.Entities, &Entity{
+		ws.Entities = append(ws.Entities, &Entity{
 			Type:        EntityTypeTree,
 			Team:        0,
 			Orientation: mat22.Rotate(0),
-			Position:    vec2.UniformDiskDistribution(treeRNG, 10),
+			Position:    vec2.UniformDiskDistribution(rng, 10),
 		})
 	}
 
-	initialWorldState.Viewport = viewport2.Viewport{
+	// Place berry bushes.
+	for cellX := ws.Terrain.MinX; cellX < ws.Terrain.MaxX; cellX++ {
+		for cellY := ws.Terrain.MinY; cellY < ws.Terrain.MaxY; cellY++ {
+			terrainType, ok := ws.Terrain.TileAt(cellX, cellY)
+			if !ok {
+				panic("Bad cell")
+			}
+			switch terrainType {
+			case TerrainTypeDirt:
+				roll := rng.IntN(1000)
+				if 0 <= roll && roll < 100 {
+					// Spawn tree
+				} else if 100 <= roll && roll < 200 {
+					ent := &Entity{
+						Type: EntityTypeBush,
+						Team: 0,
+					}
+					ws.Entities = append(ws.Entities, ent)
+				} else {
+					// Spawn nothing
+				}
+			}
+		}
+	}
+
+	ws.Viewport = viewport2.Viewport{
 		Center:             vec2.T{0.0, 0.0},
 		Orientation:        mat22.Identity(),
 		PixelsPerWorldUnit: 50.0,
 	}
 
 	return &World{
-		PrevState: initialWorldState,
-		NextState: initialWorldState.Clone(),
+		PrevState: ws,
+		NextState: ws.Clone(),
 		TreeRNG:   treeRNG,
 	}
 }
@@ -275,10 +368,12 @@ func (w *WorldState) Clone() *WorldState {
 			continue
 		}
 		out.Entities[i] = &Entity{
-			Type:        w.Entities[i].Type,
-			Team:        w.Entities[i].Team,
-			Orientation: w.Entities[i].Orientation,
-			Position:    w.Entities[i].Position,
+			Type:          w.Entities[i].Type,
+			Team:          w.Entities[i].Team,
+			Orientation:   w.Entities[i].Orientation,
+			Position:      w.Entities[i].Position,
+			Variant:       w.Entities[i].Variant,
+			AmountBerries: w.Entities[i].AmountBerries,
 		}
 	}
 
@@ -316,6 +411,19 @@ func GenerateTerrain() *Terrain {
 	return ret
 }
 
+func (t *Terrain) TileAt(x, y int) (TerrainType, bool) {
+	if !(t.MinX <= x && x < t.MaxX) {
+		return TerrainTypeDirt, false
+	}
+	if !(t.MinY <= y && y < t.MaxY) {
+		return TerrainTypeDirt, false
+	}
+
+	r := y - t.MinY
+	c := x - t.MinX
+	return t.Tiles[r*(t.MaxX-t.MinX)+c]
+}
+
 func (t *Terrain) Clone() *Terrain {
 	out := &Terrain{}
 
@@ -335,9 +443,11 @@ type EntityType int
 const (
 	EntityTypeInvalid EntityType = iota
 	EntityTypeTree
+	EntityTypeBush
 	EntityTypeWoman
 	EntityTypeMan
-	EntityTypeSawmill
+	EntityTypeHouse
+	EntityTypeBarn
 )
 
 type Entity struct {
@@ -347,4 +457,8 @@ type Entity struct {
 
 	Orientation mat22.T
 	Position    vec2.T
+
+	Variant int
+
+	AmountBerries int
 }
