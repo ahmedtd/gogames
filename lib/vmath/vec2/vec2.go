@@ -16,6 +16,19 @@ func (v T) Norm() float64 {
 	return math.Sqrt(v[0]*v[0] + v[1]*v[1])
 }
 
+func Normalize(v T) T {
+	mag := math.Sqrt(v[0]*v[0] + v[1]*v[1])
+	return T{v[0] / mag, v[1] / mag}
+}
+
+func Norm(v T) float64 {
+	return math.Sqrt(v[0]*v[0] + v[1]*v[1])
+}
+
+func NormSquared(v T) float64 {
+	return v[0]*v[0] + v[1]*v[1]
+}
+
 func Add(a, b T) T {
 	return T{
 		a[0] + b[0],
@@ -39,6 +52,13 @@ func MulSV(s float64, a T) T {
 
 func Dot(a, b T) float64 {
 	return a[0]*b[0] + a[1]*b[1]
+}
+
+func UniformRectDistribution(rng *rand.Rand, bl T, w, h float64) T {
+	return T{
+		bl[0] + rng.Float64()*w,
+		bl[1] + rng.Float64()*h,
+	}
 }
 
 func UniformDiskDistribution(rng *rand.Rand, radius float64) T {
