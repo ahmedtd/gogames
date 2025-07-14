@@ -446,8 +446,8 @@ sprites {
   y: 640
   width: 128
   height: 128
-  center_x: 64
-  center_y: 64
+  center_x: 0
+  center_y: 128
 }
 
 sprites {
@@ -456,8 +456,8 @@ sprites {
   y: 768
   width: 128
   height: 128
-  center_x: 64
-  center_y: 64
+  center_x: 0
+  center_y: 128
 }
 
 sprites {
@@ -466,8 +466,8 @@ sprites {
   y: 896
   width: 128
   height: 128
-  center_x: 64
-  center_y: 64
+  center_x: 0
+  center_y: 128
 }
 
 sprites {
@@ -476,8 +476,8 @@ sprites {
   y: 128
   width: 128
   height: 128
-  center_x: 64
-  center_y: 64
+  center_x: 0
+  center_y: 128
 }
 
 sprites {
@@ -486,8 +486,8 @@ sprites {
   y: 384
   width: 128
   height: 128
-  center_x: 64
-  center_y: 64
+  center_x: 0
+  center_y: 128
 }
 
 sprites {
@@ -496,8 +496,8 @@ sprites {
   y: 640
   width: 128
   height: 128
-  center_x: 64
-  center_y: 64
+  center_x: 0
+  center_y: 128
 }
 
 sprites {
@@ -506,8 +506,8 @@ sprites {
   y: 768
   width: 128
   height: 128
-  center_x: 64
-  center_y: 64
+  center_x: 0
+  center_y: 128
 }
 
 sprites {
@@ -566,8 +566,8 @@ sprites {
   y: 700
   width: 128
   height: 128
-  center_x: 64
-  center_y: 64
+  center_x: 0
+  center_y: 128
 }
 
 sprites {
@@ -576,8 +576,8 @@ sprites {
   y: 0
   width: 128
   height: 128
-  center_x: 64
-  center_y: 64
+  center_x: 0
+  center_y: 128
 }
 
 sprites {
@@ -586,8 +586,8 @@ sprites {
   y: 128
   width: 128
   height: 128
-  center_x: 64
-  center_y: 64
+  center_x: 0
+  center_y: 128
 }
 
 sprites {
@@ -596,8 +596,8 @@ sprites {
   y: 384
   width: 128
   height: 128
-  center_x: 64
-  center_y: 64
+  center_x: 0
+  center_y: 128
 }
 
 sprites {
@@ -706,8 +706,8 @@ sprites {
   y: 896
   width: 128
   height: 128
-  center_x: 64
-  center_y: 64
+  center_x: 0
+  center_y: 128
 }
 
 sprites {
@@ -716,8 +716,8 @@ sprites {
   y: 640
   width: 128
   height: 128
-  center_x: 64
-  center_y: 64
+  center_x: 0
+  center_y: 128
 }
 
 sprites {
@@ -726,8 +726,8 @@ sprites {
   y: 384
   width: 128
   height: 128
-  center_x: 64
-  center_y: 64
+  center_x: 0
+  center_y: 128
 }
 
 sprites {
@@ -736,8 +736,8 @@ sprites {
   y: 256
   width: 128
   height: 128
-  center_x: 64
-  center_y: 64
+  center_x: 0
+  center_y: 128
 }
 
 sprites {
@@ -1006,8 +1006,8 @@ sprites {
   y: 956
   width: 128
   height: 128
-  center_x: 64
-  center_y: 64
+  center_x: 0
+  center_y: 128
 }
 
 sprites {
@@ -1016,8 +1016,8 @@ sprites {
   y: 828
   width: 128
   height: 128
-  center_x: 64
-  center_y: 64
+  center_x: 0
+  center_y: 128
 }
 
 sprites {

@@ -245,23 +245,21 @@ func (r *Renderer) Draw(screen *ebiten.Image) {
 }
 
 func (r *Renderer) drawTerrain(screen *ebiten.Image, viewport viewport2.Viewport, ter *Terrain) {
-	for r := 0; r < ter.MaxY-ter.MinY; r++ {
-		for c := 0; c < ter.MaxX-ter.MinX; c++ {
-			center := vec2.T{float64(r+ter.MinY) + 0.5, float64(c+ter.MinX) + 0.5}
+	for x := ter.MinX; x < ter.MaxX; x++ {
+		for y := ter.MinY; y < ter.MaxY; y++ {
+			bl := vec2.T{float64(x), float64(y)}
 
 			tileBox := aabox2.T{
-				Lo: vec2.T{center[0] - 0.5, center[1] - 0.5},
-				Hi: vec2.T{center[0] + 0.5, center[1] + 0.5},
+				Lo: vec2.T{bl[0], bl[1]},
+				Hi: vec2.T{bl[0] + 1.0, bl[1] + 1.0},
 			}
 
 			if !aabox2.Intersects(&viewport.WorldAABox, &tileBox) {
 				continue
 			}
 
-			tileIndex := r*(ter.MaxX-ter.MinX) + c
-
 			tileSprite := -1
-			switch ter.Tiles[tileIndex] {
+			switch ter.TileAt(x, y) {
 			case TerrainTypeDirt:
 				tileSprite = kenneyrtsmedievalspritesheet.TILE_DIRT1
 			case TerrainTypeGrass:
@@ -278,7 +276,7 @@ func (r *Renderer) drawTerrain(screen *ebiten.Image, viewport viewport2.Viewport
 				screen,
 				tileSprite,
 				viewport.WorldToScreenMatrix,
-				mat33.Transform2(1.0/128, mat22.Identity(), center),
+				mat33.Transform2(1.0/128, mat22.Identity(), bl),
 			)
 		}
 	}
@@ -304,13 +302,13 @@ func BuildInitialWorld(seed [32]byte) *World {
 	randSource := rand.NewChaCha8(seed)
 	rng := rand.New(randSource)
 
-	ws.Terrain = GenerateTerrain()
+	ws.Terrain = GenerateTerrain(rng)
 
 	for cellX := ws.Terrain.MinX; cellX < ws.Terrain.MaxX; cellX++ {
 		for cellY := ws.Terrain.MinY; cellY < ws.Terrain.MaxY; cellY++ {
 			cellCoords := vec2.T{float64(cellX), float64(cellY)}
 
-			terrainType, ok := ws.Terrain.TileAt(cellX, cellY)
+			terrainType, ok := ws.Terrain.CheckedTileAt(cellX, cellY)
 			if !ok {
 				panic("Bad cell")
 			}
@@ -322,7 +320,6 @@ func BuildInitialWorld(seed [32]byte) *World {
 					pos := vec2.UniformRectDistribution(rng, cellCoords, 1.0, 1.0)
 					ent := &Entity{
 						Type:        EntityTypeTree,
-						Team:        0,
 						Orientation: mat22.Identity(),
 						Position:    pos,
 					}
@@ -332,7 +329,6 @@ func BuildInitialWorld(seed [32]byte) *World {
 					pos := vec2.UniformRectDistribution(rng, cellCoords, 1.0, 1.0)
 					ent := &Entity{
 						Type:        EntityTypeBush,
-						Team:        0,
 						Orientation: mat22.Identity(),
 						Position:    pos,
 
@@ -354,10 +350,10 @@ func BuildInitialWorld(seed [32]byte) *World {
 						pos := vec2.UniformRectDistribution(rng, cellCoords, 1.0, 1.0)
 
 						ent := &Entity{
-							Type:                EntityTypeMan,
-							Orientation:         mat22.Identity(),
-							Position:            pos,
-							GatherBerriesActive: true,
+							Type:               EntityTypeMan,
+							Orientation:        mat22.Identity(),
+							Position:           pos,
+							GatherBerriesState: GatherBerriesStateForage,
 						}
 
 						if rng.IntN(5) == 0 {
@@ -451,7 +447,7 @@ func BerryGatheringPass(w *World) {
 }
 
 func berryGatheringSubj(w *World, subjectPrev, subjectNext *Entity) {
-	if !subjectPrev.GatherBerriesActive {
+	if subjectPrev.GatherBerriesState == GatherBerriesStateInactive {
 		return
 	}
 
@@ -621,11 +617,14 @@ func (w *WorldState) Clone() *WorldState {
 type TerrainType int
 
 const (
-	TerrainTypeDirt TerrainType = iota
+	TerrainTypeVoid TerrainType = iota
+	TerrainTypeDirt
 	TerrainTypeGrass
 	TerrainTypeSand
 	TerrainTypeStone
 	TerrainTypeIce
+	TerrainTypeMax // Invalid type, only used to determine how many terrain types there are.
+	TerrainTypeAny // Pseudo-type, used to represent "don't care" in terrain evolution kernels.
 )
 
 type Terrain struct {
@@ -635,30 +634,377 @@ type Terrain struct {
 	Tiles []TerrainType
 }
 
-func GenerateTerrain() *Terrain {
-	ret := &Terrain{}
+func GenerateTerrain(rng *rand.Rand) *Terrain {
+	terPrev := &Terrain{}
 
-	ret.MinX = -20
-	ret.MaxX = 20
+	terPrev.MinX = -40
+	terPrev.MaxX = 40
 
-	ret.MinY = -20
-	ret.MaxY = 20
+	terPrev.MinY = -40
+	terPrev.MaxY = 40
 
-	ret.Tiles = make([]TerrainType, (ret.MaxX-ret.MinX)*(ret.MaxY-ret.MinY))
-	return ret
+	terPrev.Tiles = make([]TerrainType, (terPrev.MaxX-terPrev.MinX)*(terPrev.MaxY-terPrev.MinY))
+
+	// Set world border to water
+	for x := terPrev.MinX; x < terPrev.MaxX; x++ {
+		terPrev.SetTileAt(x, terPrev.MinY, TerrainTypeIce)
+		terPrev.SetTileAt(x, terPrev.MaxY-1, TerrainTypeIce)
+	}
+	for y := terPrev.MinY; y < terPrev.MaxY; y++ {
+		terPrev.SetTileAt(terPrev.MinX, y, TerrainTypeIce)
+		terPrev.SetTileAt(terPrev.MaxX-1, y, TerrainTypeIce)
+	}
+
+	// Seed a few interior water points
+	for i := 0; i < terPrev.NumTiles()/80; i++ {
+		x := rng.IntN(terPrev.MaxX-terPrev.MinX) + terPrev.MinX
+		y := rng.IntN(terPrev.MaxY-terPrev.MinY) + terPrev.MinY
+		terPrev.SetTileAt(x, y, TerrainTypeIce)
+	}
+
+	// Seed a few interior grass points
+	for i := 0; i < terPrev.NumTiles()/20; i++ {
+		x := rng.IntN(terPrev.MaxX-terPrev.MinX) + terPrev.MinX
+		y := rng.IntN(terPrev.MaxY-terPrev.MinY) + terPrev.MinY
+		terPrev.SetTileAt(x, y, TerrainTypeGrass)
+	}
+
+	// Seed a few interior dirt points
+	for i := 0; i < terPrev.NumTiles()/40; i++ {
+		x := rng.IntN(terPrev.MaxX-terPrev.MinX) + terPrev.MinX
+		y := rng.IntN(terPrev.MaxY-terPrev.MinY) + terPrev.MinY
+		terPrev.SetTileAt(x, y, TerrainTypeDirt)
+	}
+
+	// Seed a few interior sand points
+	for i := 0; i < terPrev.NumTiles()/40; i++ {
+		x := rng.IntN(terPrev.MaxX-terPrev.MinX) + terPrev.MinX
+		y := rng.IntN(terPrev.MaxY-terPrev.MinY) + terPrev.MinY
+		terPrev.SetTileAt(x, y, TerrainTypeSand)
+	}
+
+	numVoidCellsRemaining := 0
+	for x := terPrev.MinX + 1; x < terPrev.MaxX-1; x++ {
+		for y := terPrev.MinY + 1; y < terPrev.MaxY-1; y++ {
+			if terPrev.TileAt(x, y) == TerrainTypeVoid {
+				numVoidCellsRemaining++
+			}
+		}
+	}
+
+	// We need to ping-pong back and forth between terNext and terPrev to prevent
+	// writes during the current evolution pass from influencing the current pass.
+
+	terNext := terPrev.Clone()
+	for {
+		cellsPopulated := 0
+		for x := terPrev.MinX + 1; x < terPrev.MaxX-1; x++ {
+			for y := terPrev.MinY + 1; y < terPrev.MaxY-1; y++ {
+				typ := terPrev.TileAt(x, y)
+
+				// This cell has already been locked in.
+				if typ != TerrainTypeVoid {
+					continue
+				}
+
+				pmf := make([]float64, TerrainTypeMax)
+				anyRuleMatched := false
+				for _, rule := range terrainEvolutionRules {
+					if EvolutionRuleMatches(terPrev, rule, x, y) {
+						anyRuleMatched = true
+						pmf[rule.c] += rule.mass
+					}
+				}
+
+				if !anyRuleMatched {
+					continue
+				}
+				terNext.SetTileAt(x, y, TerrainType(SampleDiscretePMF(pmf, rng)))
+				cellsPopulated++
+			}
+		}
+
+		copy(terPrev.Tiles, terNext.Tiles)
+
+		numVoidCellsAfterPass := 0
+		for x := terPrev.MinX + 1; x < terPrev.MaxX-1; x++ {
+			for y := terPrev.MinY + 1; y < terPrev.MaxY-1; y++ {
+				if terPrev.TileAt(x, y) == TerrainTypeVoid {
+					numVoidCellsAfterPass++
+				}
+			}
+		}
+
+		if numVoidCellsAfterPass >= numVoidCellsRemaining {
+			panic("terrain evolution failed to make progress")
+		}
+
+		if numVoidCellsAfterPass == 0 {
+			break
+		}
+
+		numVoidCellsRemaining = numVoidCellsAfterPass
+	}
+
+	return terPrev
 }
 
-func (t *Terrain) TileAt(x, y int) (TerrainType, bool) {
+func SampleDiscretePMF(pmf []float64, rng *rand.Rand) int {
+	total := 0.0
+	for _, mass := range pmf {
+		total += mass
+	}
+	sample := total * rng.Float64()
+	for i, mass := range pmf {
+		if sample < mass {
+			return i
+		}
+		sample -= mass
+	}
+	panic("unreachable")
+}
+
+// func grassWeight(terrain *Terrain, x, y int) float64 {
+// 	// Grass may not border sand.
+// 	for nx := x - 1; nx <= x+1; nx++ {
+// 		for ny := y - 1; ny <= y+1; ny++ {
+// 			if terrain.TileAt(nx, ny) == TerrainTypeSand {
+// 				return 0.0
+// 			}
+// 		}
+// 	}
+
+// 	return 1.0
+// }
+
+// func dirtWeight(terrain *Terrain, x, y int) float64 {
+// 	return 1.0
+// }
+
+// func sandWeight(terrain *Terrain, x, y int) float64 {
+// 	return 1.0
+// }
+
+type TerrainEvolutionRule struct {
+	tl, t, tr, r, c, l, bl, b, br TerrainType
+	mass                          float64
+}
+
+func EvolutionRuleMatches(terrain *Terrain, rule *TerrainEvolutionRule, x, y int) bool {
+	if rule.bl != TerrainTypeAny {
+		if terrain.TileAt(x-1, y-1) != rule.bl {
+			return false
+		}
+	}
+	if rule.b != TerrainTypeAny {
+		if terrain.TileAt(x, y-1) != rule.b {
+			return false
+		}
+	}
+	if rule.br != TerrainTypeAny {
+		if terrain.TileAt(x+1, y-1) != rule.br {
+			return false
+		}
+	}
+	if rule.l != TerrainTypeAny {
+		if terrain.TileAt(x-1, y) != rule.l {
+			return false
+		}
+	}
+	if rule.r != TerrainTypeAny {
+		if terrain.TileAt(x+1, y) != rule.r {
+			return false
+		}
+	}
+	if rule.tl != TerrainTypeAny {
+		if terrain.TileAt(x-1, y+1) != rule.tl {
+			return false
+		}
+	}
+	if rule.t != TerrainTypeAny {
+		if terrain.TileAt(x, y+1) != rule.t {
+			return false
+		}
+	}
+	if rule.tr != TerrainTypeAny {
+		if terrain.TileAt(x+1, y+1) != rule.tr {
+			return false
+		}
+	}
+	return true
+}
+
+var terrainEvolutionRules []*TerrainEvolutionRule = []*TerrainEvolutionRule{
+	// A cell surrounded by grass can become grass.
+	{
+		TerrainTypeGrass, TerrainTypeGrass, TerrainTypeGrass,
+		TerrainTypeGrass, TerrainTypeGrass, TerrainTypeGrass,
+		TerrainTypeGrass, TerrainTypeGrass, TerrainTypeGrass,
+		1,
+	},
+	{
+		TerrainTypeAny, TerrainTypeGrass, TerrainTypeAny,
+		TerrainTypeAny, TerrainTypeGrass, TerrainTypeAny,
+		TerrainTypeAny, TerrainTypeAny, TerrainTypeAny,
+		1,
+	},
+	{
+		TerrainTypeAny, TerrainTypeAny, TerrainTypeAny,
+		TerrainTypeAny, TerrainTypeGrass, TerrainTypeGrass,
+		TerrainTypeAny, TerrainTypeAny, TerrainTypeAny,
+		1,
+	},
+	{
+		TerrainTypeAny, TerrainTypeAny, TerrainTypeAny,
+		TerrainTypeAny, TerrainTypeGrass, TerrainTypeAny,
+		TerrainTypeAny, TerrainTypeGrass, TerrainTypeAny,
+		1,
+	},
+	{
+		TerrainTypeAny, TerrainTypeAny, TerrainTypeAny,
+		TerrainTypeGrass, TerrainTypeGrass, TerrainTypeAny,
+		TerrainTypeAny, TerrainTypeAny, TerrainTypeAny,
+		1,
+	},
+	// A cell surrounded by water can become water
+	{
+		TerrainTypeIce, TerrainTypeIce, TerrainTypeIce,
+		TerrainTypeIce, TerrainTypeIce, TerrainTypeIce,
+		TerrainTypeIce, TerrainTypeIce, TerrainTypeIce,
+		1,
+	},
+	{
+		TerrainTypeAny, TerrainTypeIce, TerrainTypeAny,
+		TerrainTypeAny, TerrainTypeIce, TerrainTypeAny,
+		TerrainTypeAny, TerrainTypeAny, TerrainTypeAny,
+		1,
+	},
+	{
+		TerrainTypeAny, TerrainTypeAny, TerrainTypeAny,
+		TerrainTypeAny, TerrainTypeIce, TerrainTypeIce,
+		TerrainTypeAny, TerrainTypeAny, TerrainTypeAny,
+		1,
+	},
+	{
+		TerrainTypeAny, TerrainTypeAny, TerrainTypeAny,
+		TerrainTypeAny, TerrainTypeIce, TerrainTypeAny,
+		TerrainTypeAny, TerrainTypeIce, TerrainTypeAny,
+		1,
+	},
+	{
+		TerrainTypeAny, TerrainTypeAny, TerrainTypeAny,
+		TerrainTypeIce, TerrainTypeIce, TerrainTypeAny,
+		TerrainTypeAny, TerrainTypeAny, TerrainTypeAny,
+		1,
+	},
+
+	// Sand rules
+	{
+		TerrainTypeSand, TerrainTypeSand, TerrainTypeSand,
+		TerrainTypeSand, TerrainTypeSand, TerrainTypeSand,
+		TerrainTypeSand, TerrainTypeSand, TerrainTypeSand,
+		1,
+	},
+	{
+		TerrainTypeAny, TerrainTypeSand, TerrainTypeAny,
+		TerrainTypeAny, TerrainTypeSand, TerrainTypeAny,
+		TerrainTypeAny, TerrainTypeAny, TerrainTypeAny,
+		1,
+	},
+	{
+		TerrainTypeAny, TerrainTypeAny, TerrainTypeAny,
+		TerrainTypeAny, TerrainTypeSand, TerrainTypeSand,
+		TerrainTypeAny, TerrainTypeAny, TerrainTypeAny,
+		1,
+	},
+	{
+		TerrainTypeAny, TerrainTypeAny, TerrainTypeAny,
+		TerrainTypeAny, TerrainTypeSand, TerrainTypeAny,
+		TerrainTypeAny, TerrainTypeSand, TerrainTypeAny,
+		1,
+	},
+	{
+		TerrainTypeAny, TerrainTypeAny, TerrainTypeAny,
+		TerrainTypeSand, TerrainTypeSand, TerrainTypeAny,
+		TerrainTypeAny, TerrainTypeAny, TerrainTypeAny,
+		1,
+	},
+
+	// Dirt rules
+	{
+		TerrainTypeDirt, TerrainTypeDirt, TerrainTypeDirt,
+		TerrainTypeDirt, TerrainTypeDirt, TerrainTypeDirt,
+		TerrainTypeDirt, TerrainTypeDirt, TerrainTypeDirt,
+		1,
+	},
+	{
+		TerrainTypeAny, TerrainTypeDirt, TerrainTypeAny,
+		TerrainTypeAny, TerrainTypeDirt, TerrainTypeAny,
+		TerrainTypeAny, TerrainTypeAny, TerrainTypeAny,
+		1,
+	},
+	{
+		TerrainTypeAny, TerrainTypeAny, TerrainTypeAny,
+		TerrainTypeAny, TerrainTypeDirt, TerrainTypeDirt,
+		TerrainTypeAny, TerrainTypeAny, TerrainTypeAny,
+		1,
+	},
+	{
+		TerrainTypeAny, TerrainTypeAny, TerrainTypeAny,
+		TerrainTypeAny, TerrainTypeDirt, TerrainTypeAny,
+		TerrainTypeAny, TerrainTypeDirt, TerrainTypeAny,
+		1,
+	},
+	{
+		TerrainTypeAny, TerrainTypeAny, TerrainTypeAny,
+		TerrainTypeDirt, TerrainTypeDirt, TerrainTypeAny,
+		TerrainTypeAny, TerrainTypeAny, TerrainTypeAny,
+		1,
+	},
+}
+
+func (t *Terrain) NumTiles() int {
+	return (t.MaxX - t.MinX) * (t.MaxY - t.MinY)
+}
+
+func (t *Terrain) CheckedTileAt(x, y int) (TerrainType, bool) {
 	if !(t.MinX <= x && x < t.MaxX) {
-		return TerrainTypeDirt, false
+		return TerrainTypeVoid, false
 	}
 	if !(t.MinY <= y && y < t.MaxY) {
-		return TerrainTypeDirt, false
+		return TerrainTypeVoid, false
 	}
 
 	r := y - t.MinY
 	c := x - t.MinX
 	return t.Tiles[r*(t.MaxX-t.MinX)+c], true
+}
+
+func (t *Terrain) TileAt(x, y int) TerrainType {
+	if !(t.MinX <= x && x < t.MaxX) {
+		return TerrainTypeVoid
+	}
+	if !(t.MinY <= y && y < t.MaxY) {
+		return TerrainTypeVoid
+	}
+
+	r := y - t.MinY
+	c := x - t.MinX
+	return t.Tiles[r*(t.MaxX-t.MinX)+c]
+}
+
+func (t *Terrain) SetTileAt(x, y int, val TerrainType) bool {
+	if !(t.MinX <= x && x < t.MaxX) {
+		return false
+	}
+	if !(t.MinY <= y && y < t.MaxY) {
+		return false
+	}
+
+	r := y - t.MinY
+	c := x - t.MinX
+	t.Tiles[r*(t.MaxX-t.MinX)+c] = val
+	return true
 }
 
 func (t *Terrain) Clone() *Terrain {
@@ -690,15 +1036,15 @@ const (
 type Entity struct {
 	Type EntityType
 
-	Team int
-
 	Orientation mat22.T
 	Position    vec2.T
 
 	Variant int
 
+	// Allegiance
+	Tribe int
+
 	// GatherBerries subsystem
-	GatherBerriesActive    bool
 	GatherBerriesState     GatherBerriesState
 	GatherBerriesHasTarget bool
 	GatherBerriesTarget    int
@@ -709,18 +1055,21 @@ type Entity struct {
 type GatherBerriesState int
 
 const (
-	GatherBerriesStateForage GatherBerriesState = iota
+	GatherBerriesStateInactive GatherBerriesState = iota
+	GatherBerriesStateForage
 	GatherBerriesStateReturn
 )
 
 func CopyEnt(src, dst *Entity) {
 	dst.Type = src.Type
-	dst.Team = src.Team
+
 	dst.Orientation = src.Orientation
 	dst.Position = src.Position
+
 	dst.Variant = src.Variant
 
-	dst.GatherBerriesActive = src.GatherBerriesActive
+	dst.Tribe = src.Tribe
+
 	dst.GatherBerriesState = src.GatherBerriesState
 	dst.GatherBerriesHasTarget = src.GatherBerriesHasTarget
 	dst.GatherBerriesTarget = src.GatherBerriesTarget
