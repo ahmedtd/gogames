@@ -614,6 +614,8 @@ func (w *WorldState) Clone() *WorldState {
 	return out
 }
 
+//go:generate go tool golang.org/x/tools/cmd/stringer -type=TerrainType
+
 type TerrainType int
 
 const (
@@ -624,7 +626,6 @@ const (
 	TerrainTypeStone
 	TerrainTypeIce
 	TerrainTypeMax // Invalid type, only used to determine how many terrain types there are.
-	TerrainTypeAny // Pseudo-type, used to represent "don't care" in terrain evolution kernels.
 )
 
 type Terrain struct {
@@ -635,118 +636,124 @@ type Terrain struct {
 }
 
 func GenerateTerrain(rng *rand.Rand) *Terrain {
-	terPrev := &Terrain{}
+	ter := &Terrain{}
 
-	terPrev.MinX = -40
-	terPrev.MaxX = 40
+	ter.MinX = -40
+	ter.MaxX = 40
 
-	terPrev.MinY = -40
-	terPrev.MaxY = 40
+	ter.MinY = -40
+	ter.MaxY = 40
 
-	terPrev.Tiles = make([]TerrainType, (terPrev.MaxX-terPrev.MinX)*(terPrev.MaxY-terPrev.MinY))
+	ter.Tiles = make([]TerrainType, (ter.MaxX-ter.MinX)*(ter.MaxY-ter.MinY))
 
 	// Set world border to water
-	for x := terPrev.MinX; x < terPrev.MaxX; x++ {
-		terPrev.SetTileAt(x, terPrev.MinY, TerrainTypeIce)
-		terPrev.SetTileAt(x, terPrev.MaxY-1, TerrainTypeIce)
+	for x := ter.MinX; x < ter.MaxX; x++ {
+		ter.SetTileAt(x, ter.MinY, TerrainTypeIce)
+		ter.SetTileAt(x, ter.MaxY-1, TerrainTypeIce)
 	}
-	for y := terPrev.MinY; y < terPrev.MaxY; y++ {
-		terPrev.SetTileAt(terPrev.MinX, y, TerrainTypeIce)
-		terPrev.SetTileAt(terPrev.MaxX-1, y, TerrainTypeIce)
+	for y := ter.MinY; y < ter.MaxY; y++ {
+		ter.SetTileAt(ter.MinX, y, TerrainTypeIce)
+		ter.SetTileAt(ter.MaxX-1, y, TerrainTypeIce)
 	}
 
 	// Seed a few interior water points
-	for i := 0; i < terPrev.NumTiles()/80; i++ {
-		x := rng.IntN(terPrev.MaxX-terPrev.MinX) + terPrev.MinX
-		y := rng.IntN(terPrev.MaxY-terPrev.MinY) + terPrev.MinY
-		terPrev.SetTileAt(x, y, TerrainTypeIce)
+	for i := 0; i < ter.NumTiles()/80; i++ {
+		x := rng.IntN(ter.MaxX-ter.MinX-2) + ter.MinX + 1
+		y := rng.IntN(ter.MaxY-ter.MinY-2) + ter.MinY + 1
+		if validForWater(ter, x, y) {
+			ter.SetTileAt(x, y, TerrainTypeIce)
+		}
 	}
 
 	// Seed a few interior grass points
-	for i := 0; i < terPrev.NumTiles()/20; i++ {
-		x := rng.IntN(terPrev.MaxX-terPrev.MinX) + terPrev.MinX
-		y := rng.IntN(terPrev.MaxY-terPrev.MinY) + terPrev.MinY
-		terPrev.SetTileAt(x, y, TerrainTypeGrass)
+	for i := 0; i < ter.NumTiles()/20; i++ {
+		x := rng.IntN(ter.MaxX-ter.MinX-2) + ter.MinX + 1
+		y := rng.IntN(ter.MaxY-ter.MinY-2) + ter.MinY + 1
+		if validForGrass(ter, x, y) {
+			ter.SetTileAt(x, y, TerrainTypeGrass)
+		}
 	}
 
 	// Seed a few interior dirt points
-	for i := 0; i < terPrev.NumTiles()/40; i++ {
-		x := rng.IntN(terPrev.MaxX-terPrev.MinX) + terPrev.MinX
-		y := rng.IntN(terPrev.MaxY-terPrev.MinY) + terPrev.MinY
-		terPrev.SetTileAt(x, y, TerrainTypeDirt)
+	for i := 0; i < ter.NumTiles()/40; i++ {
+		x := rng.IntN(ter.MaxX-ter.MinX-2) + ter.MinX + 1
+		y := rng.IntN(ter.MaxY-ter.MinY-2) + ter.MinY + 1
+		if validForDirt(ter, x, y) {
+			ter.SetTileAt(x, y, TerrainTypeDirt)
+		}
 	}
 
 	// Seed a few interior sand points
-	for i := 0; i < terPrev.NumTiles()/40; i++ {
-		x := rng.IntN(terPrev.MaxX-terPrev.MinX) + terPrev.MinX
-		y := rng.IntN(terPrev.MaxY-terPrev.MinY) + terPrev.MinY
-		terPrev.SetTileAt(x, y, TerrainTypeSand)
-	}
-
-	numVoidCellsRemaining := 0
-	for x := terPrev.MinX + 1; x < terPrev.MaxX-1; x++ {
-		for y := terPrev.MinY + 1; y < terPrev.MaxY-1; y++ {
-			if terPrev.TileAt(x, y) == TerrainTypeVoid {
-				numVoidCellsRemaining++
-			}
+	for i := 0; i < ter.NumTiles()/40; i++ {
+		x := rng.IntN(ter.MaxX-ter.MinX-2) + ter.MinX + 1
+		y := rng.IntN(ter.MaxY-ter.MinY-2) + ter.MinY + 1
+		if validForSand(ter, x, y) {
+			ter.SetTileAt(x, y, TerrainTypeSand)
 		}
 	}
 
-	// We need to ping-pong back and forth between terNext and terPrev to prevent
-	// writes during the current evolution pass from influencing the current pass.
-
-	terNext := terPrev.Clone()
 	for {
-		cellsPopulated := 0
-		for x := terPrev.MinX + 1; x < terPrev.MaxX-1; x++ {
-			for y := terPrev.MinY + 1; y < terPrev.MaxY-1; y++ {
-				typ := terPrev.TileAt(x, y)
 
-				// This cell has already been locked in.
-				if typ != TerrainTypeVoid {
-					continue
-				}
-
-				pmf := make([]float64, TerrainTypeMax)
-				anyRuleMatched := false
-				for _, rule := range terrainEvolutionRules {
-					if EvolutionRuleMatches(terPrev, rule, x, y) {
-						anyRuleMatched = true
-						pmf[rule.c] += rule.mass
-					}
-				}
-
-				if !anyRuleMatched {
-					continue
-				}
-				terNext.SetTileAt(x, y, TerrainType(SampleDiscretePMF(pmf, rng)))
-				cellsPopulated++
-			}
-		}
-
-		copy(terPrev.Tiles, terNext.Tiles)
-
-		numVoidCellsAfterPass := 0
-		for x := terPrev.MinX + 1; x < terPrev.MaxX-1; x++ {
-			for y := terPrev.MinY + 1; y < terPrev.MaxY-1; y++ {
-				if terPrev.TileAt(x, y) == TerrainTypeVoid {
-					numVoidCellsAfterPass++
+		// Build the current frontier
+		numFrontierCells := 0
+		for x := ter.MinX + 1; x < ter.MaxX-1; x++ {
+			for y := ter.MinY + 1; y < ter.MaxY-1; y++ {
+				if isOnFrontier(ter, x, y) {
+					numFrontierCells++
 				}
 			}
 		}
 
-		if numVoidCellsAfterPass >= numVoidCellsRemaining {
-			panic("terrain evolution failed to make progress")
-		}
-
-		if numVoidCellsAfterPass == 0 {
+		if numFrontierCells == 0 {
 			break
 		}
 
-		numVoidCellsRemaining = numVoidCellsAfterPass
+		// Pick random cell on frontier
+		pick := rng.IntN(numFrontierCells)
+
+		frontierX := 0
+		frontierY := 0
+		curInd := 0
+	selectorLoop:
+		for x := ter.MinX + 1; x < ter.MaxX-1; x++ {
+			for y := ter.MinY + 1; y < ter.MaxY-1; y++ {
+				if isOnFrontier(ter, x, y) {
+					if curInd == pick {
+						frontierX = x
+						frontierY = y
+						break selectorLoop
+					}
+					curInd++
+				}
+
+			}
+		}
+
+		pmf := make([]float64, TerrainTypeMax)
+		pmf[TerrainTypeDirt] = dirtWeight(ter, frontierX, frontierY)
+		pmf[TerrainTypeGrass] = grassWeight(ter, frontierX, frontierY)
+		pmf[TerrainTypeSand] = sandWeight(ter, frontierX, frontierY)
+		pmf[TerrainTypeIce] = waterWeight(ter, frontierX, frontierY)
+
+		massSum := 0.0
+		for _, mass := range pmf {
+			massSum += mass
+		}
+		if massSum == 0.0 {
+			neighborhood := make([]TerrainType, 0, 9)
+			for y := frontierY - 1; y <= frontierY+1; y++ {
+				for x := frontierX - 1; x <= frontierX+1; x++ {
+					neighborhood = append(neighborhood, ter.TileAt(x, y))
+				}
+			}
+
+			panic(fmt.Sprintf("frontier cell got 0 probability mass for all terrain types x=%v y=%v pmf=%v neighborhood=%v", frontierX, frontierY, pmf, neighborhood))
+		}
+
+		ter.SetTileAt(frontierX, frontierY, TerrainType(SampleDiscretePMF(pmf, rng)))
 	}
 
-	return terPrev
+	return ter
 }
 
 func SampleDiscretePMF(pmf []float64, rng *rand.Rand) int {
@@ -764,203 +771,164 @@ func SampleDiscretePMF(pmf []float64, rng *rand.Rand) int {
 	panic("unreachable")
 }
 
-// func grassWeight(terrain *Terrain, x, y int) float64 {
-// 	// Grass may not border sand.
-// 	for nx := x - 1; nx <= x+1; nx++ {
-// 		for ny := y - 1; ny <= y+1; ny++ {
-// 			if terrain.TileAt(nx, ny) == TerrainTypeSand {
-// 				return 0.0
-// 			}
-// 		}
-// 	}
+func isOnFrontier(terrain *Terrain, x, y int) bool {
+	isVoid := false
+	if terrain.TileAt(x, y) == TerrainTypeVoid {
+		isVoid = true
+	}
 
-// 	return 1.0
-// }
+	nonVoidNeighbor := false
+	for nx := x - 1; nx <= x+1; nx++ {
+		for ny := y - 1; ny <= y+1; ny++ {
+			if terrain.TileAt(nx, ny) != TerrainTypeVoid {
+				nonVoidNeighbor = true
+			}
+		}
+	}
 
-// func dirtWeight(terrain *Terrain, x, y int) float64 {
-// 	return 1.0
-// }
-
-// func sandWeight(terrain *Terrain, x, y int) float64 {
-// 	return 1.0
-// }
-
-type TerrainEvolutionRule struct {
-	tl, t, tr, r, c, l, bl, b, br TerrainType
-	mass                          float64
+	return isVoid && nonVoidNeighbor
 }
 
-func EvolutionRuleMatches(terrain *Terrain, rule *TerrainEvolutionRule, x, y int) bool {
-	if rule.bl != TerrainTypeAny {
-		if terrain.TileAt(x-1, y-1) != rule.bl {
-			return false
-		}
-	}
-	if rule.b != TerrainTypeAny {
-		if terrain.TileAt(x, y-1) != rule.b {
-			return false
-		}
-	}
-	if rule.br != TerrainTypeAny {
-		if terrain.TileAt(x+1, y-1) != rule.br {
-			return false
-		}
-	}
-	if rule.l != TerrainTypeAny {
-		if terrain.TileAt(x-1, y) != rule.l {
-			return false
-		}
-	}
-	if rule.r != TerrainTypeAny {
-		if terrain.TileAt(x+1, y) != rule.r {
-			return false
-		}
-	}
-	if rule.tl != TerrainTypeAny {
-		if terrain.TileAt(x-1, y+1) != rule.tl {
-			return false
-		}
-	}
-	if rule.t != TerrainTypeAny {
-		if terrain.TileAt(x, y+1) != rule.t {
-			return false
-		}
-	}
-	if rule.tr != TerrainTypeAny {
-		if terrain.TileAt(x+1, y+1) != rule.tr {
-			return false
+func validForGrass(terrain *Terrain, x, y int) bool {
+	// Grass may not border sand.
+	for nx := x - 1; nx <= x+1; nx++ {
+		for ny := y - 1; ny <= y+1; ny++ {
+			if terrain.TileAt(nx, ny) == TerrainTypeSand {
+				return false
+			}
 		}
 	}
 	return true
 }
 
-var terrainEvolutionRules []*TerrainEvolutionRule = []*TerrainEvolutionRule{
-	// A cell surrounded by grass can become grass.
-	{
-		TerrainTypeGrass, TerrainTypeGrass, TerrainTypeGrass,
-		TerrainTypeGrass, TerrainTypeGrass, TerrainTypeGrass,
-		TerrainTypeGrass, TerrainTypeGrass, TerrainTypeGrass,
-		1,
-	},
-	{
-		TerrainTypeAny, TerrainTypeGrass, TerrainTypeAny,
-		TerrainTypeAny, TerrainTypeGrass, TerrainTypeAny,
-		TerrainTypeAny, TerrainTypeAny, TerrainTypeAny,
-		1,
-	},
-	{
-		TerrainTypeAny, TerrainTypeAny, TerrainTypeAny,
-		TerrainTypeAny, TerrainTypeGrass, TerrainTypeGrass,
-		TerrainTypeAny, TerrainTypeAny, TerrainTypeAny,
-		1,
-	},
-	{
-		TerrainTypeAny, TerrainTypeAny, TerrainTypeAny,
-		TerrainTypeAny, TerrainTypeGrass, TerrainTypeAny,
-		TerrainTypeAny, TerrainTypeGrass, TerrainTypeAny,
-		1,
-	},
-	{
-		TerrainTypeAny, TerrainTypeAny, TerrainTypeAny,
-		TerrainTypeGrass, TerrainTypeGrass, TerrainTypeAny,
-		TerrainTypeAny, TerrainTypeAny, TerrainTypeAny,
-		1,
-	},
-	// A cell surrounded by water can become water
-	{
-		TerrainTypeIce, TerrainTypeIce, TerrainTypeIce,
-		TerrainTypeIce, TerrainTypeIce, TerrainTypeIce,
-		TerrainTypeIce, TerrainTypeIce, TerrainTypeIce,
-		1,
-	},
-	{
-		TerrainTypeAny, TerrainTypeIce, TerrainTypeAny,
-		TerrainTypeAny, TerrainTypeIce, TerrainTypeAny,
-		TerrainTypeAny, TerrainTypeAny, TerrainTypeAny,
-		1,
-	},
-	{
-		TerrainTypeAny, TerrainTypeAny, TerrainTypeAny,
-		TerrainTypeAny, TerrainTypeIce, TerrainTypeIce,
-		TerrainTypeAny, TerrainTypeAny, TerrainTypeAny,
-		1,
-	},
-	{
-		TerrainTypeAny, TerrainTypeAny, TerrainTypeAny,
-		TerrainTypeAny, TerrainTypeIce, TerrainTypeAny,
-		TerrainTypeAny, TerrainTypeIce, TerrainTypeAny,
-		1,
-	},
-	{
-		TerrainTypeAny, TerrainTypeAny, TerrainTypeAny,
-		TerrainTypeIce, TerrainTypeIce, TerrainTypeAny,
-		TerrainTypeAny, TerrainTypeAny, TerrainTypeAny,
-		1,
-	},
+func grassWeight(terrain *Terrain, x, y int) float64 {
+	if !validForGrass(terrain, x, y) {
+		return 0.0
+	}
 
-	// Sand rules
-	{
-		TerrainTypeSand, TerrainTypeSand, TerrainTypeSand,
-		TerrainTypeSand, TerrainTypeSand, TerrainTypeSand,
-		TerrainTypeSand, TerrainTypeSand, TerrainTypeSand,
-		1,
-	},
-	{
-		TerrainTypeAny, TerrainTypeSand, TerrainTypeAny,
-		TerrainTypeAny, TerrainTypeSand, TerrainTypeAny,
-		TerrainTypeAny, TerrainTypeAny, TerrainTypeAny,
-		1,
-	},
-	{
-		TerrainTypeAny, TerrainTypeAny, TerrainTypeAny,
-		TerrainTypeAny, TerrainTypeSand, TerrainTypeSand,
-		TerrainTypeAny, TerrainTypeAny, TerrainTypeAny,
-		1,
-	},
-	{
-		TerrainTypeAny, TerrainTypeAny, TerrainTypeAny,
-		TerrainTypeAny, TerrainTypeSand, TerrainTypeAny,
-		TerrainTypeAny, TerrainTypeSand, TerrainTypeAny,
-		1,
-	},
-	{
-		TerrainTypeAny, TerrainTypeAny, TerrainTypeAny,
-		TerrainTypeSand, TerrainTypeSand, TerrainTypeAny,
-		TerrainTypeAny, TerrainTypeAny, TerrainTypeAny,
-		1,
-	},
+	weight := 0.0
 
-	// Dirt rules
-	{
-		TerrainTypeDirt, TerrainTypeDirt, TerrainTypeDirt,
-		TerrainTypeDirt, TerrainTypeDirt, TerrainTypeDirt,
-		TerrainTypeDirt, TerrainTypeDirt, TerrainTypeDirt,
-		1,
-	},
-	{
-		TerrainTypeAny, TerrainTypeDirt, TerrainTypeAny,
-		TerrainTypeAny, TerrainTypeDirt, TerrainTypeAny,
-		TerrainTypeAny, TerrainTypeAny, TerrainTypeAny,
-		1,
-	},
-	{
-		TerrainTypeAny, TerrainTypeAny, TerrainTypeAny,
-		TerrainTypeAny, TerrainTypeDirt, TerrainTypeDirt,
-		TerrainTypeAny, TerrainTypeAny, TerrainTypeAny,
-		1,
-	},
-	{
-		TerrainTypeAny, TerrainTypeAny, TerrainTypeAny,
-		TerrainTypeAny, TerrainTypeDirt, TerrainTypeAny,
-		TerrainTypeAny, TerrainTypeDirt, TerrainTypeAny,
-		1,
-	},
-	{
-		TerrainTypeAny, TerrainTypeAny, TerrainTypeAny,
-		TerrainTypeDirt, TerrainTypeDirt, TerrainTypeAny,
-		TerrainTypeAny, TerrainTypeAny, TerrainTypeAny,
-		1,
-	},
+	// Grass may border dirt
+	for nx := x - 1; nx <= x+1; nx++ {
+		for ny := y - 1; ny <= y+1; ny++ {
+			if terrain.TileAt(nx, ny) == TerrainTypeDirt {
+				weight += 0.1
+			}
+		}
+	}
+
+	// Grass likes to border grass
+	for nx := x - 1; nx <= x+1; nx++ {
+		for ny := y - 1; ny <= y+1; ny++ {
+			if terrain.TileAt(nx, ny) == TerrainTypeGrass {
+				weight += 1.0
+			}
+		}
+	}
+
+	return weight
+}
+
+func validForDirt(terrain *Terrain, x, y int) bool {
+	return true
+}
+
+func dirtWeight(terrain *Terrain, x, y int) float64 {
+	if !validForDirt(terrain, x, y) {
+		return 0.0
+	}
+
+	weight := 0.0
+
+	// Dirt likes to border dirt
+	for nx := x - 1; nx <= x+1; nx++ {
+		for ny := y - 1; ny <= y+1; ny++ {
+			if terrain.TileAt(nx, ny) == TerrainTypeDirt {
+				weight += 1.0
+			}
+		}
+	}
+
+	// Dirt may border sand
+	for nx := x - 1; nx <= x+1; nx++ {
+		for ny := y - 1; ny <= y+1; ny++ {
+			if terrain.TileAt(nx, ny) == TerrainTypeSand {
+				weight += 0.1
+			}
+		}
+	}
+
+	// Dirt may border grass
+	for nx := x - 1; nx <= x+1; nx++ {
+		for ny := y - 1; ny <= y+1; ny++ {
+			if terrain.TileAt(nx, ny) == TerrainTypeGrass {
+				weight += 0.1
+			}
+		}
+	}
+
+	return weight
+}
+
+func validForSand(terrain *Terrain, x, y int) bool {
+	// Sand may not border grass.
+	for nx := x - 1; nx <= x+1; nx++ {
+		for ny := y - 1; ny <= y+1; ny++ {
+			if terrain.TileAt(nx, ny) == TerrainTypeGrass {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func sandWeight(terrain *Terrain, x, y int) float64 {
+	if !validForSand(terrain, x, y) {
+		return 0.0
+	}
+
+	weight := 0.0
+
+	// Sand may border dirt
+	for nx := x - 1; nx <= x+1; nx++ {
+		for ny := y - 1; ny <= y+1; ny++ {
+			if terrain.TileAt(nx, ny) == TerrainTypeDirt {
+				weight += 0.1
+			}
+		}
+	}
+
+	// Sand likes to border sand
+	for nx := x - 1; nx <= x+1; nx++ {
+		for ny := y - 1; ny <= y+1; ny++ {
+			if terrain.TileAt(nx, ny) == TerrainTypeSand {
+				weight += 1.0
+			}
+		}
+	}
+
+	return weight
+}
+
+func validForWater(terrain *Terrain, x, y int) bool {
+	return true
+}
+
+func waterWeight(terrain *Terrain, x, y int) float64 {
+	if !validForWater(terrain, x, y) {
+		return 0.0
+	}
+
+	weight := 0.0
+	// Water likes to border water.
+	for nx := x - 1; nx <= x+1; nx++ {
+		for ny := y - 1; ny <= y+1; ny++ {
+			if terrain.TileAt(nx, ny) == TerrainTypeIce {
+				weight += 1.0
+			}
+		}
+	}
+	return weight
 }
 
 func (t *Terrain) NumTiles() int {

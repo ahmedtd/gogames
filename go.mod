@@ -1,6 +1,8 @@
 module github.com/ahmedtd/gogames
 
-go 1.23
+go 1.23.0
+
+toolchain go1.24.4
 
 require (
 	github.com/barnex/fmath v0.0.0-20150108074215-ec9671f295c2
@@ -9,7 +11,7 @@ require (
 	github.com/google/subcommands v1.2.0
 	github.com/hajimehoshi/ebiten/v2 v2.8.5
 	go.starlark.net v0.0.0-20230112144946-fae38c8a6d89
-	golang.org/x/sync v0.8.0
+	golang.org/x/sync v0.16.0
 	google.golang.org/protobuf v1.25.0
 )
 
@@ -22,7 +24,11 @@ require (
 	github.com/golang/freetype v0.0.0-20170609003504-e2365dfdc4a0 // indirect
 	github.com/jezek/xgb v1.1.1 // indirect
 	golang.org/x/image v0.20.0 // indirect
-	golang.org/x/sys v0.25.0 // indirect
+	golang.org/x/mod v0.26.0 // indirect
+	golang.org/x/sys v0.34.0 // indirect
 	golang.org/x/text v0.18.0 // indirect
+	golang.org/x/tools v0.35.0 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 )
+
+tool golang.org/x/tools/cmd/stringer
