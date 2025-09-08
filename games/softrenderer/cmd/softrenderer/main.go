@@ -10,6 +10,8 @@ import (
 	_ "net/http/pprof"
 	"os"
 
+	"github.com/ahmedtd/gogames/embeddedassets/kenneycastlekit"
+	"github.com/ahmedtd/gogames/lib/objloader"
 	"github.com/ahmedtd/gogames/lib/vmath/faabox2"
 	"github.com/ahmedtd/gogames/lib/vmath/fvec2"
 	"github.com/ahmedtd/gogames/lib/vmath/fvec3"
@@ -102,13 +104,24 @@ type Renderer struct {
 	RGBPowerBuf []RGBPower
 
 	Objs []Triangle
+
+	Meshes map[string]*objloader.Mesh
 }
 
 var _ ebiten.Game = &Renderer{}
 
 func NewRenderer(numRenderThreads int) (*Renderer, error) {
+
+	ballistaMesh, err := kenneycastlekit.LoadSiegeBallista()
+	if err != nil {
+		return nil, fmt.Errorf("while loading ballista mesh: %w", err)
+	}
+
 	r := &Renderer{
 		Objs: make([]Triangle, 1),
+		Meshes: map[string]*objloader.Mesh{
+			"kenneycastlekit/siege-ballista": ballistaMesh,
+		},
 	}
 	return r, nil
 }
@@ -145,6 +158,10 @@ func (r *Renderer) Draw(screen *ebiten.Image) {
 		r.RGBPowerBuf = make([]RGBPower, rx*ry)
 	}
 
+	for i := 0; i < len(r.RGBPowerBuf); i++ {
+		r.RGBPowerBuf[i] = RGBPower{0, 0, 0}
+	}
+
 	for i := 0; i < len(r.buf)/4; i++ {
 		r.buf[i*4+0] = 0
 		r.buf[i*4+1] = 0
@@ -152,8 +169,54 @@ func (r *Renderer) Draw(screen *ebiten.Image) {
 		r.buf[i*4+3] = 255
 	}
 
+	r.DrawMesh("kenneycastlekit/siege-ballista")
 	for _, tri := range r.Objs {
 		r.DrawTriangle(tri)
+	}
+
+	// Simple automatic exposure control.  Divide all pixels by the maximum RGB
+	// power if it's greater than 1.0.
+	maxMag := float32(0)
+	for px := 0; px < rx; px++ {
+		for py := 0; py < ry; py++ {
+			thisMag := fmath.Sqrt(r.RGBPowerBuf[py*rx+px][0]*r.RGBPowerBuf[py*rx+px][0] + r.RGBPowerBuf[py*rx+px][1]*r.RGBPowerBuf[py*rx+px][1] + r.RGBPowerBuf[py*rx+px][2]*r.RGBPowerBuf[py*rx+px][2])
+			if thisMag > maxMag {
+				maxMag = thisMag
+			}
+		}
+	}
+	if maxMag < float32(1) {
+		maxMag = 1
+	}
+	exposureDivisor := 1 / maxMag
+
+	for px := 0; px < rx; px++ {
+		for py := 0; py < ry; py++ {
+			rgbPow := r.RGBPowerBuf[py*rx+px]
+			rgbPow[0] *= exposureDivisor
+			rgbPow[1] *= exposureDivisor
+			rgbPow[2] *= exposureDivisor
+
+			if rgbPow[0] == 1.0 {
+				r.buf[py*rx*4+px*4+0] = 255
+			} else {
+				r.buf[py*rx*4+px*4+0] = byte(fmath.Floor(rgbPow[0] * 256.0))
+			}
+
+			if rgbPow[1] == 1.0 {
+				r.buf[py*rx*4+px*4+1] = 255
+			} else {
+				r.buf[py*rx*4+px*4+1] = byte(fmath.Floor(rgbPow[1] * 256.0))
+			}
+
+			if rgbPow[2] == 1.0 {
+				r.buf[py*rx*4+px*4+2] = 255
+			} else {
+				r.buf[py*rx*4+px*4+2] = byte(fmath.Floor(rgbPow[2] * 256.0))
+			}
+
+			r.buf[py*rx*4+px*4+3] = 255
+		}
 	}
 
 	r.renderImage.WritePixels(r.buf)
@@ -165,6 +228,20 @@ func (r *Renderer) Draw(screen *ebiten.Image) {
 	screen.DrawImage(r.renderImage, drawRenderImageOptions)
 }
 
+func (r *Renderer) DrawMesh(meshName string) {
+	mesh := r.Meshes[meshName]
+
+	for _, tri := range mesh.Tris {
+		concreteTri := Triangle{}
+		for i := range 3 {
+			ind := tri.VertexIndices[i]
+			vertex := mesh.Vertices[ind]
+			concreteTri.Vs[i] = fvec3.AddVV(fvec3.MulVS(vertex, 100.0), fvec3.T{200, 200, 0})
+		}
+		r.DrawTriangle(concreteTri)
+	}
+}
+
 func (r *Renderer) DrawTriangle(tri Triangle) {
 	// Convert to screen space.  Will eventually be an affine transform and
 	// perspective divide.
@@ -172,12 +249,20 @@ func (r *Renderer) DrawTriangle(tri Triangle) {
 	sp1 := fvec2.T{tri.Vs[1][0], tri.Vs[1][1]}
 	sp2 := fvec2.T{tri.Vs[2][0], tri.Vs[2][1]}
 
+	color0 := RGBPower{1, 0, 0}
+	color1 := RGBPower{0, 1, 0}
+	color2 := RGBPower{0, 0, 1}
+
 	// Note: Cannot just follow the guide here.  We need to do some fancy stuff
 	// to make sure that interpolation of texture coordinates in screen space is
 	// perspective-correct. See
 	// https://www.cs.cornell.edu/~srm/fcg3/updated-11.3.1.pdf
 
 	totalArea := signedTriangleArea(sp0, sp1, sp2)
+
+	if totalArea <= 0 {
+		return
+	}
 
 	bbox := faabox2.OfPoints(sp0, sp1, sp2)
 	bbox.Lo[0] = fmath.Floor(bbox.Lo[0])
@@ -201,10 +286,9 @@ func (r *Renderer) DrawTriangle(tri Triangle) {
 				continue
 			}
 
-			r.buf[y*r.xSize*4+x*4+0] = 255
-			r.buf[y*r.xSize*4+x*4+1] = 0
-			r.buf[y*r.xSize*4+x*4+2] = 0
-			r.buf[y*r.xSize*4+x*4+3] = 255
+			for i := 0; i < 3; i++ {
+				r.RGBPowerBuf[y*r.xSize+x][i] = b0*color0[i] + b1*color1[i] + b2*color2[i]
+			}
 		}
 	}
 
