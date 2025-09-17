@@ -12,7 +12,6 @@ import (
 
 	"github.com/ahmedtd/gogames/embeddedassets/kenneycastlekit"
 	"github.com/ahmedtd/gogames/lib/objloader"
-	"github.com/ahmedtd/gogames/lib/vmath/faabox2"
 	"github.com/ahmedtd/gogames/lib/vmath/fvec2"
 	"github.com/ahmedtd/gogames/lib/vmath/fvec3"
 	"github.com/barnex/fmath"
@@ -102,6 +101,7 @@ type Renderer struct {
 	buf         []byte
 
 	RGBPowerBuf []RGBPower
+	DepthBuf    []float32
 
 	Objs []Triangle
 
@@ -156,13 +156,13 @@ func (r *Renderer) Draw(screen *ebiten.Image) {
 		r.renderImage = ebiten.NewImage(rx, ry)
 		r.buf = make([]byte, rx*ry*4)
 		r.RGBPowerBuf = make([]RGBPower, rx*ry)
+		r.DepthBuf = make([]float32, rx*ry)
 	}
 
-	for i := 0; i < len(r.RGBPowerBuf); i++ {
+	for i := 0; i < r.xSize*r.ySize; i++ {
 		r.RGBPowerBuf[i] = RGBPower{0, 0, 0}
-	}
+		r.DepthBuf[i] = float32(math.Inf(-1))
 
-	for i := 0; i < len(r.buf)/4; i++ {
 		r.buf[i*4+0] = 0
 		r.buf[i*4+1] = 0
 		r.buf[i*4+2] = 0
@@ -245,9 +245,16 @@ func (r *Renderer) DrawMesh(meshName string) {
 func (r *Renderer) DrawTriangle(tri Triangle) {
 	// Convert to screen space.  Will eventually be an affine transform and
 	// perspective divide.
-	sp0 := fvec2.T{tri.Vs[0][0], tri.Vs[0][1]}
-	sp1 := fvec2.T{tri.Vs[1][0], tri.Vs[1][1]}
-	sp2 := fvec2.T{tri.Vs[2][0], tri.Vs[2][1]}
+
+	sp0 := tri.Vs[0]
+	sp1 := tri.Vs[1]
+	sp2 := tri.Vs[2]
+
+	screenCoords := [3]fvec2.T{
+		{sp0[0], sp0[1]},
+		{sp1[0], sp1[1]},
+		{sp2[0], sp2[1]},
+	}
 
 	color0 := RGBPower{1, 0, 0}
 	color1 := RGBPower{0, 1, 0}
@@ -258,37 +265,63 @@ func (r *Renderer) DrawTriangle(tri Triangle) {
 	// perspective-correct. See
 	// https://www.cs.cornell.edu/~srm/fcg3/updated-11.3.1.pdf
 
-	totalArea := signedTriangleArea(sp0, sp1, sp2)
+	totalArea := signedTriangleArea(screenCoords[0], screenCoords[1], screenCoords[2])
 
 	if totalArea <= 0 {
 		return
 	}
 
-	bbox := faabox2.OfPoints(sp0, sp1, sp2)
-	bbox.Lo[0] = fmath.Floor(bbox.Lo[0])
-	bbox.Lo[1] = fmath.Floor(bbox.Lo[1])
-	bbox.Hi[0] = fmath.Ceil(bbox.Hi[0])
-	bbox.Hi[1] = fmath.Ceil(bbox.Hi[1])
+	// Compute a screen-coordinate bounding box
+	minX := float32(math.Inf(1))
+	minY := float32(math.Inf(1))
+	maxX := float32(math.Inf(-1))
+	maxY := float32(math.Inf(-1))
+	for i := 0; i < 3; i++ {
+		if screenCoords[i][0] < minX {
+			minX = screenCoords[i][0]
+		}
+		if screenCoords[i][0] > maxX {
+			maxX = screenCoords[i][0]
+		}
+		if screenCoords[i][1] < minY {
+			minY = screenCoords[i][1]
+		}
+		if screenCoords[i][1] > maxY {
+			maxY = screenCoords[i][1]
+		}
+	}
+	minX = fmath.Floor(minX)
+	maxX = fmath.Ceil(maxX)
+	minY = fmath.Floor(minY)
+	maxY = fmath.Ceil(maxY)
 
-	for x := int(bbox.Lo[0]); x < int(bbox.Hi[0]); x++ {
-		for y := int(bbox.Lo[1]); y < int(bbox.Hi[1]); y++ {
+	for x := int(minX); x < int(maxX); x++ {
+		for y := int(minY); y < int(maxY); y++ {
 			if x < 0 || x >= r.xSize || y < 0 || y >= r.ySize {
 				continue
 			}
 
 			fragCenter := fvec2.T{float32(x), float32(y)}
 
-			b0 := signedTriangleArea(fragCenter, sp1, sp2) / totalArea
-			b1 := signedTriangleArea(fragCenter, sp2, sp0) / totalArea
-			b2 := signedTriangleArea(fragCenter, sp0, sp1) / totalArea
+			b0 := signedTriangleArea(fragCenter, screenCoords[1], screenCoords[2]) / totalArea
+			b1 := signedTriangleArea(fragCenter, screenCoords[2], screenCoords[0]) / totalArea
+			b2 := signedTriangleArea(fragCenter, screenCoords[0], screenCoords[1]) / totalArea
 
 			if b0 < 0 || b1 < 0 || b2 < 0 {
 				continue
 			}
 
+			// Depth test
+			fragDepth := b0*sp0[2] + b1*sp1[2] + b2*sp2[2]
+			if fragDepth <= r.DepthBuf[y*r.xSize+x] {
+				continue
+			}
+			r.DepthBuf[y*r.xSize+x] = fragDepth
+
 			for i := 0; i < 3; i++ {
 				r.RGBPowerBuf[y*r.xSize+x][i] = b0*color0[i] + b1*color1[i] + b2*color2[i]
 			}
+
 		}
 	}
 

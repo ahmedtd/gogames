@@ -4,6 +4,17 @@ import "github.com/barnex/fmath"
 
 type T [16]float32
 
+// Viewport produces a 4x4 affine transformation matrix that maps from clip
+// space to screen coords.
+func Viewport(w, h float32) T {
+	return T{
+		w / 2, 0, 0, w / 2,
+		0, h / 2, 0, h / 2,
+		0, 0, 1, 0,
+		0, 0, 0, 1,
+	}
+}
+
 func rowEchelonInplace(m, a *T) {
 	for k := 0; k < 4; k++ {
 		// Select the row below row k with the best pivot.
