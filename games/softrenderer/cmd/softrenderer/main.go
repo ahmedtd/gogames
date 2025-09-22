@@ -12,8 +12,9 @@ import (
 
 	"github.com/ahmedtd/gogames/embeddedassets/kenneycastlekit"
 	"github.com/ahmedtd/gogames/lib/objloader"
-	"github.com/ahmedtd/gogames/lib/vmath/fvec2"
+	"github.com/ahmedtd/gogames/lib/vmath/fmat44"
 	"github.com/ahmedtd/gogames/lib/vmath/fvec3"
+	"github.com/ahmedtd/gogames/lib/vmath/fvec4"
 	"github.com/barnex/fmath"
 
 	"github.com/google/subcommands"
@@ -103,7 +104,8 @@ type Renderer struct {
 	RGBPowerBuf []RGBPower
 	DepthBuf    []float32
 
-	Objs []Triangle
+	Objs   []Triangle
+	CamPos fvec3.T
 
 	Meshes map[string]*objloader.Mesh
 }
@@ -140,6 +142,10 @@ func (r *Renderer) Update() error {
 	r.Objs[0].Vs[2][0] = float32(math.Cos(angle2))*100 + 100
 	r.Objs[0].Vs[2][1] = float32(math.Sin(angle2))*100 + 100
 
+	r.CamPos[0] = float32(math.Cos(angle0)) * 20.0
+	r.CamPos[1] = float32(math.Sin(angle0)) * 20.0
+	r.CamPos[2] = 10.0
+
 	r.frameCounter++
 
 	return nil
@@ -169,10 +175,15 @@ func (r *Renderer) Draw(screen *ebiten.Image) {
 		r.buf[i*4+3] = 255
 	}
 
-	r.DrawMesh("kenneycastlekit/siege-ballista")
-	for _, tri := range r.Objs {
-		r.DrawTriangle(tri)
-	}
+	// Compose camera transform
+	camMatrix := fmat44.MulMM(
+		fmat44.Perspective(3),
+		fmat44.LookAt(r.CamPos, fvec3.T{}, fvec3.T{0, 0, 1}),
+	)
+
+	viewportMatrix := fmat44.Viewport(float32(rx), float32(ry))
+
+	r.DrawMesh(camMatrix, viewportMatrix, "kenneycastlekit/siege-ballista")
 
 	// Simple automatic exposure control.  Divide all pixels by the maximum RGB
 	// power if it's greater than 1.0.
@@ -228,32 +239,30 @@ func (r *Renderer) Draw(screen *ebiten.Image) {
 	screen.DrawImage(r.renderImage, drawRenderImageOptions)
 }
 
-func (r *Renderer) DrawMesh(meshName string) {
+func (r *Renderer) DrawMesh(camMatrix, viewportMatrix fmat44.T, meshName string) {
 	mesh := r.Meshes[meshName]
 
 	for _, tri := range mesh.Tris {
 		concreteTri := Triangle{}
 		for i := range 3 {
 			ind := tri.VertexIndices[i]
-			vertex := mesh.Vertices[ind]
-			concreteTri.Vs[i] = fvec3.AddVV(fvec3.MulVS(vertex, 100.0), fvec3.T{200, 200, 0})
+			concreteTri.Vs[i] = mesh.Vertices[ind]
 		}
-		r.DrawTriangle(concreteTri)
+		r.DrawTriangle(camMatrix, viewportMatrix, concreteTri)
 	}
 }
 
-func (r *Renderer) DrawTriangle(tri Triangle) {
-	// Convert to screen space.  Will eventually be an affine transform and
-	// perspective divide.
+func (r *Renderer) DrawTriangle(camMatrix, viewportMatrix fmat44.T, tri Triangle) {
+	// Compute normalized device coordinates for the triangle.
+	var ndcs [3]fvec4.T
+	for i := range 3 {
+		ndcs[i] = fmat44.MulMV(camMatrix, fvec4.T{tri.Vs[i][0], tri.Vs[i][1], tri.Vs[i][2], 1.0})
+		ndcs[i][3] = 1
+	}
 
-	sp0 := tri.Vs[0]
-	sp1 := tri.Vs[1]
-	sp2 := tri.Vs[2]
-
-	screenCoords := [3]fvec2.T{
-		{sp0[0], sp0[1]},
-		{sp1[0], sp1[1]},
-		{sp2[0], sp2[1]},
+	var viewportCoords [3]fvec4.T
+	for i := range 3 {
+		viewportCoords[i] = fmat44.MulMV(viewportMatrix, ndcs[i])
 	}
 
 	color0 := RGBPower{1, 0, 0}
@@ -265,7 +274,7 @@ func (r *Renderer) DrawTriangle(tri Triangle) {
 	// perspective-correct. See
 	// https://www.cs.cornell.edu/~srm/fcg3/updated-11.3.1.pdf
 
-	totalArea := signedTriangleArea(screenCoords[0], screenCoords[1], screenCoords[2])
+	totalArea := signedTriangleArea(viewportCoords[0], viewportCoords[1], viewportCoords[2])
 
 	if totalArea <= 0 {
 		return
@@ -277,17 +286,17 @@ func (r *Renderer) DrawTriangle(tri Triangle) {
 	maxX := float32(math.Inf(-1))
 	maxY := float32(math.Inf(-1))
 	for i := 0; i < 3; i++ {
-		if screenCoords[i][0] < minX {
-			minX = screenCoords[i][0]
+		if viewportCoords[i][0] < minX {
+			minX = viewportCoords[i][0]
 		}
-		if screenCoords[i][0] > maxX {
-			maxX = screenCoords[i][0]
+		if viewportCoords[i][0] > maxX {
+			maxX = viewportCoords[i][0]
 		}
-		if screenCoords[i][1] < minY {
-			minY = screenCoords[i][1]
+		if viewportCoords[i][1] < minY {
+			minY = viewportCoords[i][1]
 		}
-		if screenCoords[i][1] > maxY {
-			maxY = screenCoords[i][1]
+		if viewportCoords[i][1] > maxY {
+			maxY = viewportCoords[i][1]
 		}
 	}
 	minX = fmath.Floor(minX)
@@ -301,18 +310,18 @@ func (r *Renderer) DrawTriangle(tri Triangle) {
 				continue
 			}
 
-			fragCenter := fvec2.T{float32(x), float32(y)}
+			fragCenter := fvec4.T{float32(x), float32(y), 0, 1}
 
-			b0 := signedTriangleArea(fragCenter, screenCoords[1], screenCoords[2]) / totalArea
-			b1 := signedTriangleArea(fragCenter, screenCoords[2], screenCoords[0]) / totalArea
-			b2 := signedTriangleArea(fragCenter, screenCoords[0], screenCoords[1]) / totalArea
+			b0 := signedTriangleArea(fragCenter, viewportCoords[1], viewportCoords[2]) / totalArea
+			b1 := signedTriangleArea(fragCenter, viewportCoords[2], viewportCoords[0]) / totalArea
+			b2 := signedTriangleArea(fragCenter, viewportCoords[0], viewportCoords[1]) / totalArea
 
 			if b0 < 0 || b1 < 0 || b2 < 0 {
 				continue
 			}
 
 			// Depth test
-			fragDepth := b0*sp0[2] + b1*sp1[2] + b2*sp2[2]
+			fragDepth := b0*viewportCoords[0][2] + b1*viewportCoords[1][2] + b2*viewportCoords[2][2]
 			if fragDepth <= r.DepthBuf[y*r.xSize+x] {
 				continue
 			}
@@ -327,9 +336,9 @@ func (r *Renderer) DrawTriangle(tri Triangle) {
 
 }
 
-func signedTriangleArea(a, b, c fvec2.T) float32 {
-	ab := fvec2.Sub(b, a)
-	ac := fvec2.Sub(c, a)
+func signedTriangleArea(a, b, c fvec4.T) float32 {
+	ab := fvec4.SubVV(b, a)
+	ac := fvec4.SubVV(c, a)
 	return 0.5 * (ab[0]*ac[1] - ab[1]*ac[0])
 }
 

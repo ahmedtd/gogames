@@ -1,6 +1,10 @@
 package fmat44
 
-import "github.com/barnex/fmath"
+import (
+	"github.com/ahmedtd/gogames/lib/vmath/fvec3"
+	"github.com/ahmedtd/gogames/lib/vmath/fvec4"
+	"github.com/barnex/fmath"
+)
 
 type T [16]float32
 
@@ -12,6 +16,66 @@ func Viewport(w, h float32) T {
 		0, h / 2, 0, h / 2,
 		0, 0, 1, 0,
 		0, 0, 0, 1,
+	}
+}
+
+func Perspective(f float32) T {
+	return T{
+		1, 0, 0, 0,
+		0, 1, 0, 0,
+		0, 0, 1, 0,
+		0, 0, -1 / f, 1,
+	}
+}
+
+func LookAt(camPos, targetPos, globalUp fvec3.T) T {
+	eye := fvec3.Normalize(fvec3.SubVV(targetPos, camPos))
+	left := fvec3.Normalize(fvec3.CProd(globalUp, eye))
+	camUp := fvec3.Normalize(fvec3.CProd(eye, left))
+
+	changeOfBasis := T{
+		left[0], left[1], left[2], 0,
+		camUp[0], camUp[1], camUp[2], 0,
+		eye[0], eye[1], eye[2], 0,
+		0, 0, 0, 1,
+	}
+
+	translation := T{
+		1, 0, 0, -camPos[0],
+		0, 1, 0, -camPos[1],
+		0, 0, 1, -camPos[2],
+		0, 0, 0, 1,
+	}
+
+	return MulMM(changeOfBasis, translation)
+}
+
+func MulMM(a, b T) T {
+	result := T{}
+	for i := 0; i < 4; i++ {
+		for j := 0; j < 4; j++ {
+			for k := 0; k < 4; k++ {
+				result[i*4+j] += a[i*4+k] * b[k*4+j]
+			}
+		}
+	}
+	return result
+}
+
+func MulMV(a T, b fvec4.T) fvec4.T {
+	return fvec4.T{
+		a[0]*b[0] + a[1]*b[1] + a[2]*b[2] + a[3]*b[3],
+		a[4]*b[0] + a[5]*b[1] + a[6]*b[2] + a[7]*b[3],
+		a[8]*b[0] + a[9]*b[1] + a[10]*b[2] + a[11]*b[3],
+		a[12]*b[0] + a[13]*b[1] + a[14]*b[2] + a[15]*b[3],
+	}
+}
+
+func MulMV3(a T, b fvec3.T) fvec3.T {
+	return fvec3.T{
+		a[0]*b[0] + a[1]*b[1] + a[2]*b[2] + a[3]*1,
+		a[4]*b[0] + a[5]*b[1] + a[6]*b[2] + a[7]*1,
+		a[8]*b[0] + a[9]*b[1] + a[10]*b[2] + a[11]*1,
 	}
 }
 
