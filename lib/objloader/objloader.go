@@ -25,7 +25,7 @@ type Mesh struct {
 	Tris          []Tri
 }
 
-func Parse(objBytes []byte) (*Mesh, error) {
+func Parse(objBytes []byte, swapYZ bool) (*Mesh, error) {
 
 	mesh := &Mesh{}
 	curGroups := []string{"default"}
@@ -72,7 +72,11 @@ func Parse(objBytes []byte) (*Mesh, error) {
 			if err != nil {
 				return nil, fmt.Errorf("while parsing v: failed to parse z: %w", err)
 			}
-			mesh.Vertices = append(mesh.Vertices, fvec3.T{float32(x), float32(y), float32(z)})
+			v := fvec3.T{float32(x), float32(y), float32(z)}
+			if swapYZ {
+				v[1], v[2] = v[2], -v[1]
+			}
+			mesh.Vertices = append(mesh.Vertices, v)
 		case "vn":
 			if len(parts) < 4 {
 				return nil, fmt.Errorf("need at least 3 entries in normal")
@@ -90,7 +94,11 @@ func Parse(objBytes []byte) (*Mesh, error) {
 			if err != nil {
 				return nil, fmt.Errorf("while parsing vn: failed to parse z: %w", err)
 			}
-			mesh.Normals = append(mesh.Normals, fvec3.T{float32(x), float32(y), float32(z)})
+			n := fvec3.T{float32(x), float32(y), float32(z)}
+			if swapYZ {
+				n[1], n[2] = n[2], -n[1]
+			}
+			mesh.Normals = append(mesh.Normals, n)
 		case "vt":
 			if len(parts) < 3 {
 				return nil, fmt.Errorf("need at least 2 entries in texture coord")

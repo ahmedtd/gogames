@@ -14,7 +14,7 @@ var OBJBytes []byte
 var TextureBytes []byte
 
 func LoadSiegeBallista() (*objloader.Mesh, error) {
-	mesh, err := objloader.Parse(OBJBytes)
+	mesh, err := objloader.Parse(OBJBytes, true)
 	if err != nil {
 		return nil, fmt.Errorf("while parsing OBJ: %w", err)
 	}
