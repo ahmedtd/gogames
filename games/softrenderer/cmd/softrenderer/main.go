@@ -9,16 +9,20 @@ import (
 	"net/http"
 	_ "net/http/pprof"
 	"os"
+	"runtime/pprof"
+	"time"
 
 	"github.com/ahmedtd/gogames/embeddedassets/kenneycastlekit"
-	"github.com/ahmedtd/gogames/lib/objloader"
+	"github.com/ahmedtd/gogames/lib/resource/renderable3"
 	"github.com/ahmedtd/gogames/lib/vmath/fmat44"
+	"github.com/ahmedtd/gogames/lib/vmath/fvec2"
 	"github.com/ahmedtd/gogames/lib/vmath/fvec3"
 	"github.com/ahmedtd/gogames/lib/vmath/fvec4"
 	"github.com/barnex/fmath"
 
 	"github.com/google/subcommands"
 	"github.com/hajimehoshi/ebiten/v2"
+	"github.com/hajimehoshi/ebiten/v2/inpututil"
 )
 
 func main() {
@@ -90,7 +94,10 @@ func (c *RunCommand) executeError(ctx context.Context, f *flag.FlagSet, args ...
 type RGBPower [3]float32
 
 type Triangle struct {
-	Vs [3]fvec3.T
+	Vs            [3]fvec3.T
+	TextureCoords [3]fvec2.T
+
+	Diffuse *renderable3.UncompressedImage
 }
 
 type Renderer struct {
@@ -107,7 +114,7 @@ type Renderer struct {
 	Objs   []Triangle
 	CamPos fvec3.T
 
-	Meshes map[string]*objloader.Mesh
+	Meshes map[string]*renderable3.T
 }
 
 var _ ebiten.Game = &Renderer{}
@@ -121,7 +128,7 @@ func NewRenderer(numRenderThreads int) (*Renderer, error) {
 
 	r := &Renderer{
 		Objs: make([]Triangle, 1),
-		Meshes: map[string]*objloader.Mesh{
+		Meshes: map[string]*renderable3.T{
 			"kenneycastlekit/siege-ballista": ballistaMesh,
 		},
 	}
@@ -129,6 +136,38 @@ func NewRenderer(numRenderThreads int) (*Renderer, error) {
 }
 
 func (r *Renderer) Update() error {
+	if inpututil.IsKeyJustPressed(ebiten.KeyF3) {
+		go func() {
+			f, err := os.Create("cpu.pprof")
+			if err != nil {
+				log.Printf("Error while opening profile output: %v", err)
+				return
+			}
+			defer f.Close()
+
+			if err := pprof.StartCPUProfile(f); err != nil {
+				log.Printf("Error while starting CPU profile: %v", err)
+				return
+			}
+			defer pprof.StopCPUProfile()
+			time.Sleep(10 * time.Second)
+		}()
+	}
+	if inpututil.IsKeyJustPressed(ebiten.KeyF4) {
+		go func() {
+			f, err := os.Create("heap.pprof")
+			if err != nil {
+				log.Printf("Error while opening profile output: %v", err)
+				return
+			}
+			defer f.Close()
+
+			if err := pprof.Lookup("heap").WriteTo(f, 0); err != nil {
+				log.Printf("Error while writing heap profile: %v", err)
+			}
+		}()
+	}
+
 	angle0 := ((float64(r.frameCounter) / 120 * 30.0) + 0.0) * math.Pi / 180.0
 	angle1 := ((float64(r.frameCounter) / 120 * 30.0) + 150.0) * math.Pi / 180.0
 	angle2 := ((float64(r.frameCounter) / 120 * 30.0) + 210.0) * math.Pi / 180.0
@@ -243,11 +282,20 @@ func (r *Renderer) DrawMesh(camMatrix, viewportMatrix fmat44.T, meshName string)
 	mesh := r.Meshes[meshName]
 
 	for _, tri := range mesh.Tris {
-		concreteTri := Triangle{}
+		concreteTri := Triangle{
+			Diffuse: mesh.Diffuse,
+		}
 		for i := range 3 {
 			ind := tri.VertexIndices[i]
 			concreteTri.Vs[i] = mesh.Vertices[ind]
+
+			textureInd := tri.TextureIndices[i]
+			concreteTri.TextureCoords[i] = mesh.TextureCoords[textureInd]
+			concreteTri.TextureCoords[i][0] *= float32(concreteTri.Diffuse.Width)
+			concreteTri.TextureCoords[i][1] = 1 - concreteTri.TextureCoords[i][1]
+			concreteTri.TextureCoords[i][1] *= float32(concreteTri.Diffuse.Height)
 		}
+
 		r.DrawTriangle(camMatrix, viewportMatrix, concreteTri)
 	}
 }
@@ -265,27 +313,27 @@ func (r *Renderer) DrawTriangle(camMatrix, viewportMatrix fmat44.T, tri Triangle
 		viewportCoords[i] = fmat44.MulMV(viewportMatrix, ndcs[i])
 	}
 
-	color0 := RGBPower{1, 0, 0}
-	color1 := RGBPower{0, 1, 0}
-	color2 := RGBPower{0, 0, 1}
-
 	// Note: Cannot just follow the guide here.  We need to do some fancy stuff
 	// to make sure that interpolation of texture coordinates in screen space is
 	// perspective-correct. See
 	// https://www.cs.cornell.edu/~srm/fcg3/updated-11.3.1.pdf
 
-	totalArea := signedTriangleArea(viewportCoords[0], viewportCoords[1], viewportCoords[2])
+	totalArea := signedTriangleArea(
+		viewportCoords[0][0], viewportCoords[0][1],
+		viewportCoords[1][0], viewportCoords[1][1],
+		viewportCoords[2][0], viewportCoords[2][1],
+	)
 
 	if totalArea <= 0 {
 		return
 	}
 
 	// Compute a screen-coordinate bounding box
-	minX := float32(math.Inf(1))
-	minY := float32(math.Inf(1))
-	maxX := float32(math.Inf(-1))
-	maxY := float32(math.Inf(-1))
-	for i := 0; i < 3; i++ {
+	minX := viewportCoords[0][0]
+	minY := viewportCoords[0][1]
+	maxX := viewportCoords[0][0]
+	maxY := viewportCoords[0][1]
+	for i := 1; i < 3; i++ {
 		if viewportCoords[i][0] < minX {
 			minX = viewportCoords[i][0]
 		}
@@ -299,6 +347,19 @@ func (r *Renderer) DrawTriangle(camMatrix, viewportMatrix fmat44.T, tri Triangle
 			maxY = viewportCoords[i][1]
 		}
 	}
+	if minX < 0 {
+		minX = 0
+	}
+	if maxX >= float32(r.xSize) {
+		maxX = float32(r.xSize - 1)
+	}
+	if minY < 0 {
+		minY = 0
+	}
+	if maxY >= float32(r.ySize) {
+		maxY = float32(r.ySize - 1)
+	}
+
 	minX = fmath.Floor(minX)
 	maxX = fmath.Ceil(maxX)
 	minY = fmath.Floor(minY)
@@ -306,16 +367,23 @@ func (r *Renderer) DrawTriangle(camMatrix, viewportMatrix fmat44.T, tri Triangle
 
 	for x := int(minX); x < int(maxX); x++ {
 		for y := int(minY); y < int(maxY); y++ {
-			if x < 0 || x >= r.xSize || y < 0 || y >= r.ySize {
-				continue
-			}
-
 			fragCenter := fvec4.T{float32(x), float32(y), 0, 1}
 
-			b0 := signedTriangleArea(fragCenter, viewportCoords[1], viewportCoords[2]) / totalArea
-			b1 := signedTriangleArea(fragCenter, viewportCoords[2], viewportCoords[0]) / totalArea
-			b2 := signedTriangleArea(fragCenter, viewportCoords[0], viewportCoords[1]) / totalArea
-
+			b0 := signedTriangleArea(
+				fragCenter[0], fragCenter[1],
+				viewportCoords[1][0], viewportCoords[1][1],
+				viewportCoords[2][0], viewportCoords[2][1],
+			) / totalArea
+			b1 := signedTriangleArea(
+				fragCenter[0], fragCenter[1],
+				viewportCoords[2][0], viewportCoords[2][1],
+				viewportCoords[0][0], viewportCoords[0][1],
+			) / totalArea
+			b2 := signedTriangleArea(
+				fragCenter[0], fragCenter[1],
+				viewportCoords[0][0], viewportCoords[0][1],
+				viewportCoords[1][0], viewportCoords[1][1],
+			) / totalArea
 			if b0 < 0 || b1 < 0 || b2 < 0 {
 				continue
 			}
@@ -327,19 +395,27 @@ func (r *Renderer) DrawTriangle(camMatrix, viewportMatrix fmat44.T, tri Triangle
 			}
 			r.DepthBuf[y*r.xSize+x] = fragDepth
 
-			for i := 0; i < 3; i++ {
-				r.RGBPowerBuf[y*r.xSize+x][i] = b0*color0[i] + b1*color1[i] + b2*color2[i]
-			}
+			textureU := int(b0*tri.TextureCoords[0][0] + b1*tri.TextureCoords[1][0] + b2*tri.TextureCoords[2][0])
+			textureV := int(b0*tri.TextureCoords[0][1] + b1*tri.TextureCoords[1][1] + b2*tri.TextureCoords[2][1])
+			fragr := tri.Diffuse.Samples[textureV*tri.Diffuse.Width*4+textureU*4+0]
+			fragg := tri.Diffuse.Samples[textureV*tri.Diffuse.Width*4+textureU*4+1]
+			fragb := tri.Diffuse.Samples[textureV*tri.Diffuse.Width*4+textureU*4+2]
+			// fraga := tri.Diffuse.Samples[textureV*tri.Diffuse.Width*4+textureU*4+3]
 
+			r.RGBPowerBuf[y*r.xSize+x][0] = fragr
+			r.RGBPowerBuf[y*r.xSize+x][1] = fragg
+			r.RGBPowerBuf[y*r.xSize+x][2] = fragb
 		}
 	}
 
 }
 
-func signedTriangleArea(a, b, c fvec4.T) float32 {
-	ab := fvec4.SubVV(b, a)
-	ac := fvec4.SubVV(c, a)
-	return 0.5 * (ab[0]*ac[1] - ab[1]*ac[0])
+func signedTriangleArea(a0, a1, b0, b1, c0, c1 float32) float32 {
+	ab0 := b0 - a0
+	ac1 := c1 - a1
+	ab1 := b1 - a1
+	ac0 := c0 - a0
+	return 0.5 * (ab0*ac1 - ab1*ac0)
 }
 
 func (r *Renderer) Layout(outsideWidth, outsideHeight int) (int, int) {
