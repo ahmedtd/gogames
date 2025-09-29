@@ -8,6 +8,15 @@ import (
 
 type T [16]float32
 
+func Identity() T {
+	return T{
+		1, 0, 0, 0,
+		0, 1, 0, 0,
+		0, 0, 1, 0,
+		0, 0, 0, 1,
+	}
+}
+
 // Viewport produces a 4x4 affine transformation matrix that maps from clip
 // space to screen coords.
 func Viewport(w, h float32) T {

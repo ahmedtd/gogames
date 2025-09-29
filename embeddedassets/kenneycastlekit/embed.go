@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"image/png"
 
+	"github.com/ahmedtd/gogames/lib/graphics/renderable3"
 	"github.com/ahmedtd/gogames/lib/objloader"
-	"github.com/ahmedtd/gogames/lib/resource/renderable3"
 )
 
 //go:embed siege-ballista.obj
