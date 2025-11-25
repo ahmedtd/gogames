@@ -1,6 +1,7 @@
 package main
 
 import (
+	"container/heap"
 	"context"
 	"crypto/sha256"
 	"flag"
@@ -987,6 +988,69 @@ func (t *Terrain) Clone() *Terrain {
 	copy(out.Tiles, t.Tiles)
 
 	return out
+}
+
+type CellCoord struct {
+	X, Y int
+}
+
+type CellHeapEntry struct {
+	Index int
+	Coord CellCoord
+	Cost  float64
+}
+
+// A CellHeap implements heap.Interface and holds Items.
+type CellHeap struct {
+	Entries []CellHeapEntry
+}
+
+func (h *CellHeap) Len() int {
+	return len(h.Entries)
+}
+
+func (h *CellHeap) Less(i, j int) bool {
+	return h.Entries[i].Cost > h.Entries[j].Cost
+}
+
+func (h *CellHeap) Swap(i, j int) {
+	h.Entries[i], h.Entries[j] = h.Entries[j], h.Entries[i]
+	h.Entries[i].Index = i
+	h.Entries[j].Index = j
+}
+
+func (h *CellHeap) Push(x any) {
+	n := len(h.Entries)
+	item := x.(CellHeapEntry)
+	item.Index = n
+	h.Entries = append(h.Entries)
+}
+
+func (h *CellHeap) Pop() any {
+	n := len(h.Entries)
+	item := h.Entries[n-1]
+	h.Entries[n-1] = CellHeapEntry{}
+	item.Index = -1
+	h.Entries = h.Entries[0 : n-1]
+	return item
+}
+
+// update modifies the priority and value of an Item in the queue.
+func (h *CellHeap) update(item *CellHeapEntry, value string, priority int) {
+	item.value = value
+	item.priority = priority
+	heap.Fix(pq, item.index)
+}
+
+type Frontier struct {
+	MinX, MaxX int
+	MinY, MaxY int
+
+	Costs []int
+}
+
+func (t *Terrain) Route(from, to CellCoord) (path []CellCoord, ok bool) {
+
 }
 
 type EntityType int
