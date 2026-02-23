@@ -36,6 +36,18 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
+// TODO: Profiling shows that most time is being taken in PixelToRay and BVH
+// RayTest.
+//
+// PixelToRay can probably be accelarated by implementing it in terms of
+// archsimd.Float32x4, as well as unrolling it across N SIMD registers. Instead
+// of calculating PixelToRay once for each pixel, we should first compose an
+// index buffer in the RenderTile, then use SIMD to convert that to a ray buffer
+// very quickly.  (Similar to denseDot2 in go-ml)
+//
+// BVH RayTest will be more difficult.  It might be possible to query multiple
+// nodes simultaneously.  Each node could potentially have 8 children
+
 func main() {
 	subcommands.Register(subcommands.HelpCommand(), "")
 	subcommands.Register(subcommands.FlagsCommand(), "")
