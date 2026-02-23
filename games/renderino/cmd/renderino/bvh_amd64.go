@@ -72,7 +72,7 @@ func (t *BVHTree) RayTest(ray Ray, checkRef func(ref int)) {
 		}
 
 		// If we didn't hit this node, we don't need to look at it any further.
-		if !node.RayTest(pointV, inverseSlopeV) {
+		if !bvhRayTest(archsimd.LoadFloat32x4(&node.Lo), archsimd.LoadFloat32x4(&node.Hi), pointV, inverseSlopeV) {
 			continue
 		}
 
@@ -108,7 +108,7 @@ func (t *BVHTree) assembleBVHTree(elements []*BVHNode, axis uint8) *BVHNode {
 
 	// Sort all elements according to the split axis.
 	slices.SortFunc[[]*BVHNode, *BVHNode](elements, func(a, b *BVHNode) int {
-		diff := a.Lo.GetElem(axis) - b.Lo.GetElem(axis)
+		diff := a.Lo[axis] - b.Lo[axis]
 		switch {
 		case diff < 0:
 			return -1
@@ -125,19 +125,19 @@ func (t *BVHTree) assembleBVHTree(elements []*BVHNode, axis uint8) *BVHNode {
 	hiChild := t.assembleBVHTree(elements[splitIndex:], (axis+1)%3)
 
 	boundsLo := [4]float32{}
-	boundsLo[0] = min(loChild.Lo.GetElem(0), hiChild.Lo.GetElem(0))
-	boundsLo[1] = min(loChild.Lo.GetElem(1), hiChild.Lo.GetElem(1))
-	boundsLo[2] = min(loChild.Lo.GetElem(2), hiChild.Lo.GetElem(2))
+	for i := range 3 {
+		boundsLo[i] = min(loChild.Lo[i], hiChild.Lo[i])
+	}
 
 	boundsHi := [4]float32{}
-	boundsHi[0] = max(loChild.Hi.GetElem(0), hiChild.Hi.GetElem(0))
-	boundsHi[1] = max(loChild.Hi.GetElem(1), hiChild.Hi.GetElem(1))
-	boundsHi[2] = max(loChild.Hi.GetElem(2), hiChild.Hi.GetElem(2))
+	for i := range 3 {
+		boundsHi[i] = max(loChild.Hi[i], hiChild.Hi[i])
+	}
 
 	node := t.GetFreeNode()
 	node.Type = BVHNodeTypeComposite
-	node.Lo = archsimd.LoadFloat32x4(&boundsLo)
-	node.Hi = archsimd.LoadFloat32x4(&boundsHi)
+	node.Lo = boundsLo
+	node.Hi = boundsHi
 	node.LoChild = loChild
 	node.HiChild = hiChild
 
@@ -153,8 +153,8 @@ const (
 
 type BVHNode struct {
 	Type BVHNodeType
-	Lo   archsimd.Float32x4
-	Hi   archsimd.Float32x4
+	Lo   [4]float32
+	Hi   [4]float32
 
 	Ref int
 
@@ -164,16 +164,16 @@ type BVHNode struct {
 
 func (b *BVHNode) Reset(nodeType BVHNodeType, lo, hi fvec3.T, ref int) {
 	b.Type = nodeType
-	b.Lo = archsimd.LoadFloat32x4((*[4]float32)(&lo))
-	b.Hi = archsimd.LoadFloat32x4((*[4]float32)(&hi))
+	b.Lo = ([4]float32)(lo)
+	b.Hi = ([4]float32)(hi)
 	b.Ref = ref
 }
 
-func (b *BVHNode) RayTest(point, inverseSlope archsimd.Float32x4) bool {
+func bvhRayTest(lo, hi, point, inverseSlope archsimd.Float32x4) bool {
 	// https://tavianator.com/2011/ray_box.html
 
-	loContacts := b.Lo.Sub(point).Mul(inverseSlope)
-	hiContacts := b.Hi.Sub(point).Mul(inverseSlope)
+	loContacts := lo.Sub(point).Mul(inverseSlope)
+	hiContacts := hi.Sub(point).Mul(inverseSlope)
 
 	// Now loContacts[0] is the collision point of the ray and the lo x-plane of
 	// the box
