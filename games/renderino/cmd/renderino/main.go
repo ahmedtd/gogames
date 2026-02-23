@@ -130,7 +130,7 @@ type Renderer struct {
 	renderGroup *errgroup.Group
 
 	TileSize int
-	tiles    []RenderTile
+	tiles    []*RenderTile
 
 	renderImage *ebiten.Image
 	buf         []byte
@@ -146,6 +146,12 @@ type RenderTile struct {
 	SrcX, SrcY  int
 	LimX, LimY  int
 	RGBPowerBuf []RGBPower
+
+	// Size (LimX-SrcX)*(LimY-SrcY)
+	IndexBuf [][4]float32
+
+	// Size: (LimX-SrcX)*(LimY-SrcY)
+	RaySlopeBuf [][4]float32
 }
 
 var _ ebiten.Game = &Renderer{}
@@ -451,7 +457,7 @@ func (r *Renderer) Draw(screen *ebiten.Image) {
 		r.buf = make([]byte, rx*ry*4)
 		r.RGBPowerBuf = make([]RGBPower, rx*ry)
 
-		r.tiles = []RenderTile{}
+		r.tiles = []*RenderTile{}
 		for tileSrcX := 0; tileSrcX < rx; tileSrcX += r.TileSize {
 			for tileSrcY := 0; tileSrcY < ry; tileSrcY += r.TileSize {
 				tileSizeX := r.TileSize
@@ -462,13 +468,30 @@ func (r *Renderer) Draw(screen *ebiten.Image) {
 				if tileSrcY+r.TileSize > ry {
 					tileSizeY = ry - tileSrcY
 				}
-				r.tiles = append(r.tiles, RenderTile{
+				tile := &RenderTile{
 					SrcX:        tileSrcX,
 					SrcY:        tileSrcY,
 					LimX:        tileSrcX + tileSizeX,
 					LimY:        tileSrcY + tileSizeY,
 					RGBPowerBuf: make([]RGBPower, tileSizeX*tileSizeY),
-				})
+					IndexBuf:    make([][4]float32, tileSizeX*tileSizeY),
+					RaySlopeBuf: make([][4]float32, tileSizeX*tileSizeY),
+				}
+
+				for px := tile.SrcX; px < tile.LimX; px++ {
+					for py := tile.SrcY; py < tile.LimY; py++ {
+						tx := px - tile.SrcX
+						ty := py - tile.SrcY
+
+						tile.IndexBuf[ty*tileSizeX+tx][0] = float32(px)
+						tile.IndexBuf[ty*tileSizeX+tx][1] = float32(py)
+						tile.IndexBuf[ty*tileSizeX+tx][2] = 0
+						tile.IndexBuf[ty*tileSizeX+tx][3] = 1
+					}
+				}
+
+				r.tiles = append(r.tiles, tile)
+
 			}
 		}
 	}
@@ -481,27 +504,20 @@ func (r *Renderer) Draw(screen *ebiten.Image) {
 	r.LatestRenderState.Camera.Aperture[2] = r.LatestRenderState.Camera.Aperture[1] / float32(rx) * float32(ry)
 
 	// Render each tile.
-	for i := 0; i < len(r.tiles); i++ {
-		i := i
+	for _, tile := range r.tiles {
 		r.renderGroup.Go(func() error {
-			tileSizeX := r.tiles[i].LimX - r.tiles[i].SrcX
+			tileSizeX := tile.LimX - tile.SrcX
 
-			for px := r.tiles[i].SrcX; px < r.tiles[i].LimX; px++ {
-				for py := r.tiles[i].SrcY; py < r.tiles[i].LimY; py++ {
-					tx := px - r.tiles[i].SrcX
-					ty := py - r.tiles[i].SrcY
-					r.tiles[i].RGBPowerBuf[ty*tileSizeX+tx] = r.LatestRenderState.RenderPixel(px, py, rx, ry)
-				}
-			}
+			r.LatestRenderState.RenderTile(tile, rx, ry)
 
 			// Copy the tile back to the main buf under a lock.
 			r.bufLock.Lock()
 			defer r.bufLock.Unlock()
-			for px := r.tiles[i].SrcX; px < r.tiles[i].LimX; px++ {
-				for py := r.tiles[i].SrcY; py < r.tiles[i].LimY; py++ {
-					tx := px - r.tiles[i].SrcX
-					ty := py - r.tiles[i].SrcY
-					r.RGBPowerBuf[py*rx+px] = r.tiles[i].RGBPowerBuf[ty*tileSizeX+tx]
+			for px := tile.SrcX; px < tile.LimX; px++ {
+				for py := tile.SrcY; py < tile.LimY; py++ {
+					tx := px - tile.SrcX
+					ty := py - tile.SrcY
+					r.RGBPowerBuf[py*rx+px] = tile.RGBPowerBuf[ty*tileSizeX+tx]
 				}
 			}
 
@@ -613,9 +629,45 @@ type RenderState struct {
 	Tree *BVHTree
 }
 
-func (r *RenderState) RenderPixel(px, py, wx, wy int) RGBPower {
-	ray := r.Camera.PixelToRay(px, py, wx, wy)
+func (r *RenderState) RenderTile(tile *RenderTile, rx, ry int) {
+	tileSizeX := tile.LimX - tile.SrcX
+	tileSizeY := tile.LimY - tile.SrcY
 
+	// Build tile.RaySlopeBuf.  IndexBuf already contains the coordinates of each pixel.
+	pinholeCamera(r.Camera.Center, r.Camera.ApertureToWorld, r.Camera.Aperture, float32(rx), float32(ry), tileSizeX*tileSizeY, tile.IndexBuf, tile.RaySlopeBuf)
+
+	for px := tile.SrcX; px < tile.LimX; px++ {
+		for py := tile.SrcY; py < tile.LimY; py++ {
+			tx := px - tile.SrcX
+			ty := py - tile.SrcY
+
+			ray := Ray{
+				Point: r.Camera.Center,
+				Slope: fvec3.T{
+					tile.RaySlopeBuf[ty*tileSizeX+tx][0],
+					tile.RaySlopeBuf[ty*tileSizeX+tx][1],
+					tile.RaySlopeBuf[ty*tileSizeX+tx][2],
+					tile.RaySlopeBuf[ty*tileSizeX+tx][3],
+				},
+			}
+			tile.RGBPowerBuf[ty*tileSizeX+tx] = r.RenderRay(ray)
+		}
+	}
+}
+
+func pinholeCamera(center fvec3.T, apertureToWorld fmat33.T, aperture fvec3.T, screenX, screenY float32, tileLength int, pixelCoords [][4]float32, slopes [][4]float32) {
+	for i := 0; i < tileLength; i++ {
+		apertureCoords := fvec3.T{
+			aperture[0],
+			(1.0 - 2.0*float32(pixelCoords[i][0])/screenX) * aperture[1],
+			(1.0 - 2.0*float32(pixelCoords[i][1])/screenY) * aperture[2],
+		}
+
+		slopes[i] = fvec3.Normalize(fmat33.MulMV(apertureToWorld, apertureCoords))
+	}
+}
+
+func (r *RenderState) RenderRay(ray Ray) RGBPower {
 	minContact := Contact{
 		Mode: ContactModeMiss,
 		T:    100000000.0,
@@ -692,19 +744,6 @@ type PinholeCamera struct {
 	Center          fvec3.T
 	ApertureToWorld fmat33.T
 	Aperture        fvec3.T
-}
-
-func (c *PinholeCamera) PixelToRay(px, py, w, h int /*, rng *rand.Rand*/) Ray {
-	apertureCoords := fvec3.T{
-		c.Aperture[0],
-		(1.0 - 2.0*float32(px)/float32(w)) * c.Aperture[1],
-		(1.0 - 2.0*float32(py)/float32(h)),
-	}
-
-	return Ray{
-		Point: c.Center,
-		Slope: fvec3.Normalize(fmat33.MulMV(c.ApertureToWorld, apertureCoords)),
-	}
 }
 
 func (c *PinholeCamera) Eye() fvec3.T {
