@@ -148,10 +148,8 @@ type RenderTile struct {
 	RGBPowerBuf []RGBPower
 
 	// Size (LimX-SrcX)*(LimY-SrcY)
-	IndexBuf [][4]float32
-
-	// Size: (LimX-SrcX)*(LimY-SrcY)
-	RaySlopeBuf [][4]float32
+	IndexBuf   [][4]float32
+	CameraRays [][4]float32
 }
 
 var _ ebiten.Game = &Renderer{}
@@ -452,6 +450,13 @@ func (r *Renderer) Draw(screen *ebiten.Image) {
 	rx := int(float64(screen.Bounds().Dx()) / r.curUpscaleFactor)
 	ry := int(float64(screen.Bounds().Dy()) / r.curUpscaleFactor)
 
+	// The camera's aperture needs to be adjusted to match the screen's ratio.
+	//
+	// Horizontal FOV is 80 degrees, with vertical FOV adjusted to match.
+	r.LatestRenderState.Camera.Aperture[0] = 1
+	r.LatestRenderState.Camera.Aperture[1] = fmath.Sin(40.0 / 180.0 * 2.0 * fmath.Pi)
+	r.LatestRenderState.Camera.Aperture[2] = r.LatestRenderState.Camera.Aperture[1] / float32(rx) * float32(ry)
+
 	if r.renderImage == nil || r.renderImage.Bounds().Dx() != rx || r.renderImage.Bounds().Dy() != ry {
 		r.renderImage = ebiten.NewImage(rx, ry)
 		r.buf = make([]byte, rx*ry*4)
@@ -474,19 +479,22 @@ func (r *Renderer) Draw(screen *ebiten.Image) {
 					LimX:        tileSrcX + tileSizeX,
 					LimY:        tileSrcY + tileSizeY,
 					RGBPowerBuf: make([]RGBPower, tileSizeX*tileSizeY),
-					IndexBuf:    make([][4]float32, tileSizeX*tileSizeY),
-					RaySlopeBuf: make([][4]float32, tileSizeX*tileSizeY),
+					CameraRays:  make([][4]float32, tileSizeX*tileSizeY),
 				}
 
+				// Build the pinhole camera rays for this tile.
 				for px := tile.SrcX; px < tile.LimX; px++ {
 					for py := tile.SrcY; py < tile.LimY; py++ {
 						tx := px - tile.SrcX
 						ty := py - tile.SrcY
 
-						tile.IndexBuf[ty*tileSizeX+tx][0] = float32(px)
-						tile.IndexBuf[ty*tileSizeX+tx][1] = float32(py)
-						tile.IndexBuf[ty*tileSizeX+tx][2] = 0
-						tile.IndexBuf[ty*tileSizeX+tx][3] = 1
+						apertureCoords := fvec3.T{
+							r.LatestRenderState.Camera.Aperture[0],
+							(1.0 - 2.0*float32(px)/float32(rx)) * r.LatestRenderState.Camera.Aperture[1],
+							(1.0 - 2.0*float32(py)/float32(ry)) * r.LatestRenderState.Camera.Aperture[2],
+						}
+
+						tile.CameraRays[ty*tileSizeX+tx] = fvec3.Normalize(apertureCoords)
 					}
 				}
 
@@ -495,13 +503,6 @@ func (r *Renderer) Draw(screen *ebiten.Image) {
 			}
 		}
 	}
-
-	// The camera's aperture needs to be adjusted to match the screen's ratio.
-	//
-	// Horizontal FOV is 80 degrees, with vertical FOV adjusted to match.
-	r.LatestRenderState.Camera.Aperture[0] = 1
-	r.LatestRenderState.Camera.Aperture[1] = fmath.Sin(40.0 / 180.0 * 2.0 * fmath.Pi)
-	r.LatestRenderState.Camera.Aperture[2] = r.LatestRenderState.Camera.Aperture[1] / float32(rx) * float32(ry)
 
 	// Render each tile.
 	for _, tile := range r.tiles {
@@ -631,39 +632,20 @@ type RenderState struct {
 
 func (r *RenderState) RenderTile(tile *RenderTile, rx, ry int) {
 	tileSizeX := tile.LimX - tile.SrcX
-	tileSizeY := tile.LimY - tile.SrcY
-
-	// Build tile.RaySlopeBuf.  IndexBuf already contains the coordinates of each pixel.
-	pinholeCamera(r.Camera.Center, r.Camera.ApertureToWorld, r.Camera.Aperture, float32(rx), float32(ry), tileSizeX*tileSizeY, tile.IndexBuf, tile.RaySlopeBuf)
 
 	for px := tile.SrcX; px < tile.LimX; px++ {
 		for py := tile.SrcY; py < tile.LimY; py++ {
 			tx := px - tile.SrcX
 			ty := py - tile.SrcY
 
+			raySlope := fmat33.MulMV(r.Camera.ApertureToWorld, tile.CameraRays[ty*tileSizeX+tx])
+
 			ray := Ray{
 				Point: r.Camera.Center,
-				Slope: fvec3.T{
-					tile.RaySlopeBuf[ty*tileSizeX+tx][0],
-					tile.RaySlopeBuf[ty*tileSizeX+tx][1],
-					tile.RaySlopeBuf[ty*tileSizeX+tx][2],
-					tile.RaySlopeBuf[ty*tileSizeX+tx][3],
-				},
+				Slope: raySlope,
 			}
 			tile.RGBPowerBuf[ty*tileSizeX+tx] = r.RenderRay(ray)
 		}
-	}
-}
-
-func pinholeCamera(center fvec3.T, apertureToWorld fmat33.T, aperture fvec3.T, screenX, screenY float32, tileLength int, pixelCoords [][4]float32, slopes [][4]float32) {
-	for i := 0; i < tileLength; i++ {
-		apertureCoords := fvec3.T{
-			aperture[0],
-			(1.0 - 2.0*float32(pixelCoords[i][0])/screenX) * aperture[1],
-			(1.0 - 2.0*float32(pixelCoords[i][1])/screenY) * aperture[2],
-		}
-
-		slopes[i] = fvec3.Normalize(fmat33.MulMV(apertureToWorld, apertureCoords))
 	}
 }
 
