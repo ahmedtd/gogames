@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"image"
+	"image/color"
 	"image/png"
 	"io/fs"
 	"path"
@@ -68,6 +69,19 @@ type AtlasEntry struct {
 }
 
 func (t *T) RenderAtWorldPosition(screen *ebiten.Image, entryIndex int, worldToScreen, modelToWorld mat33.T) {
+	t.renderAtWorldPosition(screen, entryIndex, worldToScreen, modelToWorld, &ebiten.DrawImageOptions{})
+}
+
+// RenderAtWorldPositionTinted draws the sprite the same way as
+// RenderAtWorldPosition, but multiplies its colors by tint. This is useful
+// for recoloring grayscale sprites, e.g. to indicate faction.
+func (t *T) RenderAtWorldPositionTinted(screen *ebiten.Image, entryIndex int, worldToScreen, modelToWorld mat33.T, tint color.Color) {
+	dio := &ebiten.DrawImageOptions{}
+	dio.ColorScale.ScaleWithColor(tint)
+	t.renderAtWorldPosition(screen, entryIndex, worldToScreen, modelToWorld, dio)
+}
+
+func (t *T) renderAtWorldPosition(screen *ebiten.Image, entryIndex int, worldToScreen, modelToWorld mat33.T, dio *ebiten.DrawImageOptions) {
 	entry := t.Proto.GetSprites()[entryIndex]
 
 	centerSprite := mat33.T{
@@ -78,7 +92,6 @@ func (t *T) RenderAtWorldPosition(screen *ebiten.Image, entryIndex int, worldToS
 
 	finalMat := mat33.MulMM(worldToScreen, mat33.MulMM(modelToWorld, centerSprite))
 
-	dio := &ebiten.DrawImageOptions{}
 	dio.GeoM.SetElement(0, 0, finalMat[0*3+0])
 	dio.GeoM.SetElement(0, 1, finalMat[0*3+1])
 	dio.GeoM.SetElement(0, 2, finalMat[0*3+2])

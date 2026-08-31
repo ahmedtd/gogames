@@ -205,7 +205,7 @@ func (r *Renderer) Draw(screen *ebiten.Image) {
 			modelToWorld := mat33.Transform2(1.0/128.0, ent.Orientation, ent.Position)
 			kenneyrtsmedievalspritesheet.Sheet.RenderAtWorldPosition(
 				screen,
-				kenneyrtsmedievalspritesheet.GREY_WOMAN,
+				ent.Tribe.WomanSprite(),
 				viewport.WorldToScreenMatrix,
 				modelToWorld,
 			)
@@ -213,7 +213,7 @@ func (r *Renderer) Draw(screen *ebiten.Image) {
 			modelToWorld := mat33.Transform2(1.0/128.0, ent.Orientation, ent.Position)
 			kenneyrtsmedievalspritesheet.Sheet.RenderAtWorldPosition(
 				screen,
-				kenneyrtsmedievalspritesheet.GREY_MAN,
+				ent.Tribe.ManSprite(),
 				viewport.WorldToScreenMatrix,
 				modelToWorld,
 			)
@@ -234,11 +234,12 @@ func (r *Renderer) Draw(screen *ebiten.Image) {
 			)
 		case EntityTypeBarn:
 			modelToWorld := mat33.Transform2(1.0/128.0, ent.Orientation, ent.Position)
-			kenneyrtsmedievalspritesheet.Sheet.RenderAtWorldPosition(
+			kenneyrtsmedievalspritesheet.Sheet.RenderAtWorldPositionTinted(
 				screen,
 				kenneyrtsmedievalspritesheet.BARN,
 				viewport.WorldToScreenMatrix,
 				modelToWorld,
+				ent.Tribe.Tint(),
 			)
 		}
 
@@ -309,6 +310,14 @@ func BuildInitialWorld(seed [32]byte) *World {
 
 	ws.Terrain = GenerateTerrain(rng)
 
+	// Barn spawn points are recorded here as we scan the terrain, and used
+	// to spawn each barn's villagers only once every barn has been placed.
+	type barnSpawn struct {
+		cellCoords vec2.T
+		tribe      Tribe
+	}
+	var barnSpawns []barnSpawn
+
 	for cellX := ws.Terrain.MinX; cellX < ws.Terrain.MaxX; cellX++ {
 		for cellY := ws.Terrain.MinY; cellY < ws.Terrain.MaxY; cellY++ {
 			cellCoords := vec2.T{float64(cellX), float64(cellY)}
@@ -342,37 +351,39 @@ func BuildInitialWorld(seed [32]byte) *World {
 					ws.Entities = append(ws.Entities, ent)
 				} else if 200 <= roll && roll < 210 {
 					// Spawn barn
+					tribe := Tribe(1 + rng.IntN(int(TribeMax)-1))
 					pos := vec2.UniformRectDistribution(rng, cellCoords, 1.0, 1.0)
 					ent := &Entity{
 						Type:        EntityTypeBarn,
 						Orientation: mat22.Identity(),
 						Position:    pos,
+						Tribe:       tribe,
 					}
 					ws.Entities = append(ws.Entities, ent)
 
-					// Spawn villagers around the barn.
-					for i := 0; i < 5; i++ {
-						pos := vec2.UniformRectDistribution(rng, cellCoords, 1.0, 1.0)
-
-						ent := &Entity{
-							Type:               EntityTypeMan,
-							Orientation:        mat22.Identity(),
-							Position:           pos,
-							GatherBerriesState: GatherBerriesStateForage,
-						}
-
-						if rng.IntN(5) == 0 {
-							ent.Type = EntityTypeMan
-						} else {
-							ent.Type = EntityTypeWoman
-						}
-
-						ws.Entities = append(ws.Entities, ent)
-					}
+					barnSpawns = append(barnSpawns, barnSpawn{cellCoords: cellCoords, tribe: tribe})
 				} else {
 					// Spawn nothing
 				}
 			}
+		}
+	}
+
+	// Now that every barn has been placed, spawn each barn's villagers,
+	// belonging to the same tribe as their barn.
+	for _, spawn := range barnSpawns {
+		for i := 0; i < 5; i++ {
+			pos := vec2.UniformRectDistribution(rng, spawn.cellCoords, 1.0, 1.0)
+
+			ent := &Entity{
+				Type:               EntityTypeWoman,
+				Orientation:        mat22.Identity(),
+				Position:           pos,
+				Tribe:              spawn.tribe,
+				GatherBerriesState: GatherBerriesStateForage,
+			}
+
+			ws.Entities = append(ws.Entities, ent)
 		}
 	}
 
@@ -729,6 +740,62 @@ const (
 	EntityTypeBarn
 )
 
+// Tribe is the faction an entity belongs to. It's only meaningful for
+// EntityTypeBarn, EntityTypeMan, and EntityTypeWoman.
+type Tribe int
+
+const (
+	TribeInvalid Tribe = iota
+	TribeGreen
+	TribeBlue
+	TribeRed
+	TribeMax // Invalid, only used to determine how many tribes there are.
+)
+
+// Tint returns the color used to recolor this tribe's entities when
+// rendering, for sprites that don't have a dedicated per-tribe variant
+// (e.g. the barn).
+func (t Tribe) Tint() color.Color {
+	switch t {
+	case TribeGreen:
+		return color.RGBA{0x40, 0xc0, 0x40, 0xff}
+	case TribeBlue:
+		return color.RGBA{0x40, 0x80, 0xff, 0xff}
+	case TribeRed:
+		return color.RGBA{0xe0, 0x40, 0x40, 0xff}
+	default:
+		return color.White
+	}
+}
+
+// WomanSprite returns the spritesheet index for this tribe's woman sprite.
+func (t Tribe) WomanSprite() int {
+	switch t {
+	case TribeGreen:
+		return kenneyrtsmedievalspritesheet.GREEN_WOMAN
+	case TribeBlue:
+		return kenneyrtsmedievalspritesheet.BLUE_WOMAN
+	case TribeRed:
+		return kenneyrtsmedievalspritesheet.RED_WOMAN
+	default:
+		return kenneyrtsmedievalspritesheet.GREY_WOMAN
+	}
+}
+
+// ManSprite returns the spritesheet index for this tribe's man sprite.
+func (t Tribe) ManSprite() int {
+	switch t {
+	case TribeGreen:
+		return kenneyrtsmedievalspritesheet.GREEN_MAN
+	case TribeBlue:
+		return kenneyrtsmedievalspritesheet.BLUE_MAN
+	case TribeRed:
+		return kenneyrtsmedievalspritesheet.RED_MAN
+	default:
+		return kenneyrtsmedievalspritesheet.GREY_MAN
+	}
+}
+
 type Entity struct {
 	Type EntityType
 
@@ -738,7 +805,7 @@ type Entity struct {
 	Variant int
 
 	// Allegiance
-	Tribe int
+	Tribe Tribe
 
 	// GatherBerries subsystem
 	GatherBerriesState     GatherBerriesState
