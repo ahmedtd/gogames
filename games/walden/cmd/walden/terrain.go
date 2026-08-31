@@ -1,9 +1,7 @@
 package main
 
 import (
-	"container/heap"
 	"fmt"
-	"math"
 	"math/rand/v2"
 
 	"github.com/ahmedtd/gogames/lib/vmath/af32"
@@ -30,6 +28,7 @@ type Terrain struct {
 	Tiles []TerrainType
 
 	BerryPathCosts *af32.T
+	BarnPathCosts  *af32.T
 }
 
 func (t *Terrain) Clone() *Terrain {
@@ -43,6 +42,7 @@ func (t *Terrain) Clone() *Terrain {
 	out.Tiles = make([]TerrainType, len(t.Tiles))
 	copy(out.Tiles, t.Tiles)
 	out.BerryPathCosts = af32.Copy(t.BerryPathCosts)
+	out.BarnPathCosts = af32.Copy(t.BarnPathCosts)
 
 	return out
 }
@@ -58,6 +58,7 @@ func GenerateTerrain(rng *rand.Rand) *Terrain {
 
 	ter.Tiles = make([]TerrainType, (ter.MaxX-ter.MinX)*(ter.MaxY-ter.MinY))
 	ter.BerryPathCosts = af32.Make(ter.MaxX-ter.MinX, ter.MaxY-ter.MinY)
+	ter.BarnPathCosts = af32.Make(ter.MaxX-ter.MinX, ter.MaxY-ter.MinY)
 
 	// Set world border to water
 	for x := ter.MinX; x < ter.MaxX; x++ {
@@ -386,87 +387,101 @@ func (t *Terrain) SetTileAt(x, y int, val TerrainType) bool {
 	return true
 }
 
-// Route computes an A* path between two cell coordinates on this terrain.
-// Water and void tiles are impassable. Returns nil, false if no path exists.
-func (t *Terrain) Route(from, to CellCoord) (path []CellCoord, ok bool) {
-	destTerrain := t.TileAt(to.X, to.Y)
-	if destTerrain == TerrainTypeIce || destTerrain == TerrainTypeVoid {
-		return nil, false
+// BerryPathCostAt returns the precomputed cost of the shortest path from
+// cell (x, y) to the nearest berry bush, as computed by BerryRoutingPass.
+// Returns +Inf for out-of-bounds cells or cells that have no known route to
+// a bush.
+func (t *Terrain) BerryPathCostAt(x, y int) float32 {
+	return costAt(t, t.BerryPathCosts, x, y)
+}
+
+// SetBerryPathCostAt sets the precomputed berry path cost for cell (x, y).
+// Returns false if the cell is out of bounds.
+func (t *Terrain) SetBerryPathCostAt(x, y int, val float32) bool {
+	return setCostAt(t, t.BerryPathCosts, x, y, val)
+}
+
+// BarnPathCostAt returns the precomputed cost of the shortest path from
+// cell (x, y) to the nearest barn, as computed by BarnRoutingPass. Returns
+// +Inf for out-of-bounds cells or cells that have no known route to a barn.
+func (t *Terrain) BarnPathCostAt(x, y int) float32 {
+	return costAt(t, t.BarnPathCosts, x, y)
+}
+
+// SetBarnPathCostAt sets the precomputed barn path cost for cell (x, y).
+// Returns false if the cell is out of bounds.
+func (t *Terrain) SetBarnPathCostAt(x, y int, val float32) bool {
+	return setCostAt(t, t.BarnPathCosts, x, y, val)
+}
+
+func costAt(t *Terrain, costs *af32.T, x, y int) float32 {
+	if !(t.MinX <= x && x < t.MaxX) {
+		return F32InfP
+	}
+	if !(t.MinY <= y && y < t.MaxY) {
+		return F32InfP
+	}
+	return costs.At2(x-t.MinX, y-t.MinY)
+}
+
+func setCostAt(t *Terrain, costs *af32.T, x, y int, val float32) bool {
+	if !(t.MinX <= x && x < t.MaxX) {
+		return false
+	}
+	if !(t.MinY <= y && y < t.MaxY) {
+		return false
+	}
+	costs.Set2(x-t.MinX, y-t.MinY, val)
+	return true
+}
+
+// FloodFill computes, for every cell in the terrain, the cost (in cells) of
+// the shortest path to the closest seed cell, and writes the result into
+// costs. Water and void tiles are impassable. Cells with no reachable seed
+// are left at +Inf. Since every step has uniform cost, a breadth-first
+// expansion from all seeds at once is sufficient to find true shortest-path
+// costs, without needing a priority queue.
+func (t *Terrain) FloodFill(costs *af32.T, seeds []CellCoord) {
+	for i := range costs.V {
+		costs.V[i] = F32InfP
 	}
 
-	if from == to {
-		return []CellCoord{to}, true
+	var frontier []CellCoord
+	for _, seed := range seeds {
+		if costAt(t, costs, seed.X, seed.Y) <= 0 {
+			// Already seeded (e.g. two seeds share a cell).
+			continue
+		}
+		setCostAt(t, costs, seed.X, seed.Y, 0)
+		frontier = append(frontier, seed)
 	}
-
-	gCosts := &Frontier{
-		MinX:  t.MinX,
-		MaxX:  t.MaxX,
-		MinY:  t.MinY,
-		MaxY:  t.MaxY,
-		Costs: make([]int, (t.MaxX-t.MinX)*(t.MaxY-t.MinY)),
-	}
-	for i := range gCosts.Costs {
-		gCosts.Costs[i] = -1
-	}
-	gCosts.SetCost(from, 0)
-
-	cameFrom := make(map[CellCoord]CellCoord)
-	visited := make(map[CellCoord]bool)
-
-	pq := &CellHeap{}
-	heap.Init(pq)
-
-	h0 := math.Abs(float64(to.X-from.X)) + math.Abs(float64(to.Y-from.Y))
-	heap.Push(pq, CellHeapEntry{Coord: from, Cost: h0})
 
 	dirs := [4]CellCoord{{1, 0}, {-1, 0}, {0, 1}, {0, -1}}
 
-	for pq.Len() > 0 {
-		current := heap.Pop(pq).(CellHeapEntry)
+	for len(frontier) > 0 {
+		var nextFrontier []CellCoord
 
-		if visited[current.Coord] {
-			continue
+		for _, cell := range frontier {
+			cost := costAt(t, costs, cell.X, cell.Y)
+
+			for _, d := range dirs {
+				neighbor := CellCoord{cell.X + d.X, cell.Y + d.Y}
+
+				neighborTerrain := t.TileAt(neighbor.X, neighbor.Y)
+				if neighborTerrain == TerrainTypeIce || neighborTerrain == TerrainTypeVoid {
+					continue
+				}
+
+				tentativeCost := cost + 1
+				if tentativeCost >= costAt(t, costs, neighbor.X, neighbor.Y) {
+					continue
+				}
+
+				setCostAt(t, costs, neighbor.X, neighbor.Y, tentativeCost)
+				nextFrontier = append(nextFrontier, neighbor)
+			}
 		}
-		visited[current.Coord] = true
 
-		if current.Coord == to {
-			var result []CellCoord
-			c := to
-			for c != from {
-				result = append(result, c)
-				c = cameFrom[c]
-			}
-			result = append(result, from)
-			for i, j := 0, len(result)-1; i < j; i, j = i+1, j-1 {
-				result[i], result[j] = result[j], result[i]
-			}
-			return result, true
-		}
-
-		currentG := gCosts.CostAt(current.Coord)
-
-		for _, d := range dirs {
-			neighbor := CellCoord{current.Coord.X + d.X, current.Coord.Y + d.Y}
-			if visited[neighbor] {
-				continue
-			}
-			terrain := t.TileAt(neighbor.X, neighbor.Y)
-			if terrain == TerrainTypeIce || terrain == TerrainTypeVoid {
-				continue
-			}
-
-			tentativeG := currentG + 1
-			existingG := gCosts.CostAt(neighbor)
-			if existingG != -1 && tentativeG >= existingG {
-				continue
-			}
-
-			gCosts.SetCost(neighbor, tentativeG)
-			cameFrom[neighbor] = current.Coord
-			nh := math.Abs(float64(to.X-neighbor.X)) + math.Abs(float64(to.Y-neighbor.Y))
-			heap.Push(pq, CellHeapEntry{Coord: neighbor, Cost: float64(tentativeG) + nh})
-		}
+		frontier = nextFrontier
 	}
-
-	return nil, false
 }

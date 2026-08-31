@@ -407,6 +407,8 @@ func (w *World) Evolve(userInput *UserInput) {
 	w.NextState.CurRealTime = time.Now()
 
 	SteadyStatePass(w)
+	BerryRoutingPass(w)
+	BarnRoutingPass(w)
 	BerryGrowingPass(w)
 	BerryGatheringPass(w)
 	ViewportPass(w, userInput)
@@ -421,22 +423,43 @@ func SteadyStatePass(w *World) {
 	}
 }
 
+// BerryRoutingPass computes, for every terrain cell, the cost of the
+// shortest path to the closest berry bush worth foraging from.
 func BerryRoutingPass(w *World) {
 	terrain := w.NextState.Terrain
 
-	// Clear the path costs
-	for i := 0; i < len(terrain.BerryPathCosts); i++ {
-		terrain.BerryPathCosts[i] = F32InfN
-	}
-
+	var seeds []CellCoord
 	for i := range w.PrevState.Entities {
 		if w.PrevState.Entities[i].Type != EntityTypeBush {
 			continue
 		}
+		// Only route towards bushes worth foraging from — matches the
+		// filter berryGatheringSubj uses when picking a target.
+		if w.PrevState.Entities[i].AmountBerries <= 10.0 {
+			continue
+		}
 
-		terrain.CheckedTileAt()
-		terrain.BerryPathCosts.At2()
+		seeds = append(seeds, worldToCell(w.PrevState.Entities[i].Position))
 	}
+
+	terrain.FloodFill(terrain.BerryPathCosts, seeds)
+}
+
+// BarnRoutingPass computes, for every terrain cell, the cost of the
+// shortest path to the closest barn.
+func BarnRoutingPass(w *World) {
+	terrain := w.NextState.Terrain
+
+	var seeds []CellCoord
+	for i := range w.PrevState.Entities {
+		if w.PrevState.Entities[i].Type != EntityTypeBarn {
+			continue
+		}
+
+		seeds = append(seeds, worldToCell(w.PrevState.Entities[i].Position))
+	}
+
+	terrain.FloodFill(terrain.BarnPathCosts, seeds)
 }
 
 func BerryGrowingPass(w *World) {
@@ -469,28 +492,49 @@ func BerryGatheringPass(w *World) {
 	}
 }
 
-// moveAlongPath advances the entity along its computed path, falling back to
-// straight-line movement if no path is available.
-func moveAlongPath(w *World, subjectPrev, subjectNext *Entity, fallbackDir vec2.T) {
-	path := subjectPrev.GatherBerriesPath
-	idx := subjectPrev.GatherBerriesPathIndex
-
-	if len(path) > 0 && idx < len(path) {
-		waypointWorld := cellCenter(path[idx])
-		toWaypoint := vec2.Sub(waypointWorld, subjectPrev.Position)
-		if vec2.NormSquared(toWaypoint) < 0.05 {
-			subjectNext.GatherBerriesPathIndex = idx + 1
-		} else {
-			dir := vec2.MulSV(w.DeltaSec, vec2.Normalize(toWaypoint))
-			subjectNext.Position = vec2.Add(subjectPrev.Position, dir)
-		}
-		return
+// gradientDescentDir looks at the current cell's neighbors in a precomputed
+// cost field (costAt) and returns the direction towards whichever neighbor
+// is closer to the field's target. Returns ok=false if pos is already
+// sitting on a target cell (cost <= 0) or if no route is known from here
+// (cost is +Inf all around).
+func gradientDescentDir(pos vec2.T, costAt func(x, y int) float32) (vec2.T, bool) {
+	cell := worldToCell(pos)
+	bestCost := costAt(cell.X, cell.Y)
+	if bestCost <= 0 {
+		return vec2.T{}, false
 	}
 
-	// No path or path exhausted — straight line.
-	if vec2.NormSquared(fallbackDir) > 0 {
-		dir := vec2.MulSV(w.DeltaSec, vec2.Normalize(fallbackDir))
-		subjectNext.Position = vec2.Add(subjectPrev.Position, dir)
+	bestCell := cell
+	found := false
+	dirs := [4]CellCoord{{1, 0}, {-1, 0}, {0, 1}, {0, -1}}
+	for _, d := range dirs {
+		neighbor := CellCoord{cell.X + d.X, cell.Y + d.Y}
+		cost := costAt(neighbor.X, neighbor.Y)
+		if cost < bestCost {
+			bestCost = cost
+			bestCell = neighbor
+			found = true
+		}
+	}
+	if !found {
+		return vec2.T{}, false
+	}
+
+	return vec2.Sub(cellCenter(bestCell), pos), true
+}
+
+// moveByGradientDescent advances the entity downhill along a precomputed
+// cost field, falling back to straight-line movement if the field has no
+// usable gradient at the entity's position.
+func moveByGradientDescent(w *World, subjectPrev, subjectNext *Entity, fallbackDir vec2.T, costAt func(x, y int) float32) {
+	dir, ok := gradientDescentDir(subjectPrev.Position, costAt)
+	if !ok {
+		dir = fallbackDir
+	}
+
+	if vec2.NormSquared(dir) > 0 {
+		step := vec2.MulSV(w.DeltaSec, vec2.Normalize(dir))
+		subjectNext.Position = vec2.Add(subjectPrev.Position, step)
 	}
 }
 
@@ -505,8 +549,6 @@ func berryGatheringSubj(w *World, subjectPrev, subjectNext *Entity) {
 			subjectNext.GatherBerriesState = GatherBerriesStateReturn
 			subjectNext.GatherBerriesHasTarget = false
 			subjectNext.GatherBerriesTarget = -1
-			subjectNext.GatherBerriesPath = nil
-			subjectNext.GatherBerriesPathIndex = 0
 			return
 		} else if !subjectPrev.GatherBerriesHasTarget {
 			bushIndex, _, ok := w.PrevState.ClosestEntityToPoint(subjectPrev.Position, func(ws *WorldState, i int) bool {
@@ -518,16 +560,6 @@ func berryGatheringSubj(w *World, subjectPrev, subjectNext *Entity) {
 
 			subjectNext.GatherBerriesHasTarget = true
 			subjectNext.GatherBerriesTarget = bushIndex
-
-			bushPos := w.PrevState.Entities[bushIndex].Position
-			path, ok := w.PrevState.Terrain.Route(worldToCell(subjectPrev.Position), worldToCell(bushPos))
-			if ok {
-				subjectNext.GatherBerriesPath = path
-				subjectNext.GatherBerriesPathIndex = 1
-			} else {
-				subjectNext.GatherBerriesPath = nil
-				subjectNext.GatherBerriesPathIndex = 0
-			}
 			return
 		} else {
 			bushPrev := w.PrevState.Entities[subjectPrev.GatherBerriesTarget]
@@ -546,11 +578,9 @@ func berryGatheringSubj(w *World, subjectPrev, subjectNext *Entity) {
 				} else {
 					subjectNext.GatherBerriesHasTarget = false
 					subjectNext.GatherBerriesTarget = -1
-					subjectNext.GatherBerriesPath = nil
-					subjectNext.GatherBerriesPathIndex = 0
 				}
 			} else {
-				moveAlongPath(w, subjectPrev, subjectNext, bushTo)
+				moveByGradientDescent(w, subjectPrev, subjectNext, bushTo, w.PrevState.Terrain.BerryPathCostAt)
 			}
 		}
 
@@ -559,8 +589,6 @@ func berryGatheringSubj(w *World, subjectPrev, subjectNext *Entity) {
 			subjectNext.GatherBerriesState = GatherBerriesStateForage
 			subjectNext.GatherBerriesHasTarget = false
 			subjectNext.GatherBerriesTarget = -1
-			subjectNext.GatherBerriesPath = nil
-			subjectNext.GatherBerriesPathIndex = 0
 		} else if !subjectPrev.GatherBerriesHasTarget {
 			depotIndex, _, ok := w.PrevState.ClosestEntityToPoint(subjectPrev.Position, func(ws *WorldState, i int) bool {
 				return ws.Entities[i].Type == EntityTypeBarn
@@ -571,16 +599,6 @@ func berryGatheringSubj(w *World, subjectPrev, subjectNext *Entity) {
 
 			subjectNext.GatherBerriesHasTarget = true
 			subjectNext.GatherBerriesTarget = depotIndex
-
-			depotPos := w.PrevState.Entities[depotIndex].Position
-			path, ok := w.PrevState.Terrain.Route(worldToCell(subjectPrev.Position), worldToCell(depotPos))
-			if ok {
-				subjectNext.GatherBerriesPath = path
-				subjectNext.GatherBerriesPathIndex = 1
-			} else {
-				subjectNext.GatherBerriesPath = nil
-				subjectNext.GatherBerriesPathIndex = 0
-			}
 		} else {
 			depotPrev := w.PrevState.Entities[subjectPrev.GatherBerriesTarget]
 			depotNext := w.NextState.Entities[subjectPrev.GatherBerriesTarget]
@@ -595,7 +613,7 @@ func berryGatheringSubj(w *World, subjectPrev, subjectNext *Entity) {
 				depotNext.AmountBerries = depotPrev.AmountBerries + transferAmount
 				subjectNext.AmountBerries = subjectPrev.AmountBerries - transferAmount
 			} else {
-				moveAlongPath(w, subjectPrev, subjectNext, depotTo)
+				moveByGradientDescent(w, subjectPrev, subjectNext, depotTo, w.PrevState.Terrain.BarnPathCostAt)
 			}
 		}
 	}
@@ -691,72 +709,6 @@ type CellCoord struct {
 	X, Y int
 }
 
-type CellHeapEntry struct {
-	Index int
-	Coord CellCoord
-	Cost  float64
-}
-
-// A CellHeap implements heap.Interface and holds Items.
-type CellHeap struct {
-	Entries []CellHeapEntry
-}
-
-func (h *CellHeap) Len() int {
-	return len(h.Entries)
-}
-
-func (h *CellHeap) Less(i, j int) bool {
-	return h.Entries[i].Cost < h.Entries[j].Cost
-}
-
-func (h *CellHeap) Swap(i, j int) {
-	h.Entries[i], h.Entries[j] = h.Entries[j], h.Entries[i]
-	h.Entries[i].Index = i
-	h.Entries[j].Index = j
-}
-
-func (h *CellHeap) Push(x any) {
-	n := len(h.Entries)
-	item := x.(CellHeapEntry)
-	item.Index = n
-	h.Entries = append(h.Entries, item)
-}
-
-func (h *CellHeap) Pop() any {
-	n := len(h.Entries)
-	item := h.Entries[n-1]
-	h.Entries[n-1] = CellHeapEntry{}
-	item.Index = -1
-	h.Entries = h.Entries[0 : n-1]
-	return item
-}
-
-type Frontier struct {
-	MinX, MaxX int
-	MinY, MaxY int
-
-	Costs []int
-}
-
-func (f *Frontier) idx(x, y int) int {
-	return (y-f.MinY)*(f.MaxX-f.MinX) + (x - f.MinX)
-}
-
-func (f *Frontier) CostAt(c CellCoord) int {
-	if c.X < f.MinX || c.X >= f.MaxX || c.Y < f.MinY || c.Y >= f.MaxY {
-		return -1
-	}
-	return f.Costs[f.idx(c.X, c.Y)]
-}
-
-func (f *Frontier) SetCost(c CellCoord, cost int) {
-	if c.X < f.MinX || c.X >= f.MaxX || c.Y < f.MinY || c.Y >= f.MaxY {
-		return
-	}
-	f.Costs[f.idx(c.X, c.Y)] = cost
-}
-
 func worldToCell(p vec2.T) CellCoord {
 	return CellCoord{int(math.Floor(p[0])), int(math.Floor(p[1]))}
 }
@@ -792,8 +744,6 @@ type Entity struct {
 	GatherBerriesState     GatherBerriesState
 	GatherBerriesHasTarget bool
 	GatherBerriesTarget    int
-	GatherBerriesPath      []CellCoord
-	GatherBerriesPathIndex int
 
 	AmountBerries float64
 }
@@ -819,13 +769,6 @@ func CopyEnt(src, dst *Entity) {
 	dst.GatherBerriesState = src.GatherBerriesState
 	dst.GatherBerriesHasTarget = src.GatherBerriesHasTarget
 	dst.GatherBerriesTarget = src.GatherBerriesTarget
-	if src.GatherBerriesPath != nil {
-		dst.GatherBerriesPath = make([]CellCoord, len(src.GatherBerriesPath))
-		copy(dst.GatherBerriesPath, src.GatherBerriesPath)
-	} else {
-		dst.GatherBerriesPath = nil
-	}
-	dst.GatherBerriesPathIndex = src.GatherBerriesPathIndex
 
 	dst.AmountBerries = src.AmountBerries
 }
