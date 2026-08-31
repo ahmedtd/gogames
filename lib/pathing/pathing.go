@@ -12,7 +12,8 @@ type IntCoordHeap struct {
 func (h *IntCoordHeap) Push(coord IntCoord, cost float64) {
 	for i, c := range h.Coords {
 		if c == coord && cost < h.Costs[i] {
-			h.Costs[i]*
+			h.Costs[i] = cost
+			return
 		}
 	}
 
