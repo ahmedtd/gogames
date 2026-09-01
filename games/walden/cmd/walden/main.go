@@ -333,18 +333,20 @@ func BuildInitialWorld(seed [32]byte) *World {
 					// Spawn tree
 					pos := vec2.UniformRectDistribution(rng, cellCoords, 1.0, 1.0)
 					ent := &Entity{
-						Type:        EntityTypeTree,
-						Orientation: mat22.Identity(),
-						Position:    pos,
+						Type:            EntityTypeTree,
+						Orientation:     mat22.Identity(),
+						Position:        pos,
+						CollisionRadius: TreeCollisionRadius,
 					}
 					ws.Entities = append(ws.Entities, ent)
 				} else if 100 <= roll && roll < 200 {
 					// Spawn berry bush
 					pos := vec2.UniformRectDistribution(rng, cellCoords, 1.0, 1.0)
 					ent := &Entity{
-						Type:        EntityTypeBush,
-						Orientation: mat22.Identity(),
-						Position:    pos,
+						Type:            EntityTypeBush,
+						Orientation:     mat22.Identity(),
+						Position:        pos,
+						CollisionRadius: BushCollisionRadius,
 
 						AmountBerries: rng.Float64() * 30,
 					}
@@ -380,6 +382,7 @@ func BuildInitialWorld(seed [32]byte) *World {
 				Orientation:        mat22.Identity(),
 				Position:           pos,
 				Tribe:              spawn.tribe,
+				CollisionRadius:    PersonCollisionRadius,
 				GatherBerriesState: GatherBerriesStateForage,
 			}
 
@@ -422,6 +425,7 @@ func (w *World) Evolve(userInput *UserInput) {
 	BarnRoutingPass(w)
 	BerryGrowingPass(w)
 	BerryGatheringPass(w)
+	CollisionPass(w)
 	ViewportPass(w, userInput)
 }
 
@@ -500,6 +504,55 @@ func BerryGatheringPass(w *World) {
 		}
 
 		berryGatheringSubj(w, subjectPrev, subjectNext)
+	}
+}
+
+// CollisionPass gently nudges women and men away from anything within their
+// collision radius (trees, bushes, and other people). Trees and bushes
+// still participate in collision — they push people away — but they are
+// never pushed themselves, since only women and men are corrected here.
+func CollisionPass(w *World) {
+	for i := range w.PrevState.Entities {
+		subjectPrev := w.PrevState.Entities[i]
+		if subjectPrev.Type != EntityTypeWoman && subjectPrev.Type != EntityTypeMan {
+			continue
+		}
+		if subjectPrev.CollisionRadius <= 0 {
+			continue
+		}
+
+		push := vec2.T{}
+		for j := range w.PrevState.Entities {
+			if j == i {
+				continue
+			}
+
+			otherPrev := w.PrevState.Entities[j]
+			if otherPrev.CollisionRadius <= 0 {
+				continue
+			}
+
+			delta := vec2.Sub(subjectPrev.Position, otherPrev.Position)
+			minDist := subjectPrev.CollisionRadius + otherPrev.CollisionRadius
+			distSquared := vec2.NormSquared(delta)
+			if distSquared >= minDist*minDist {
+				continue
+			}
+
+			dist := math.Sqrt(distSquared)
+			dir := vec2.T{1, 0}
+			if dist > 1e-6 {
+				dir = vec2.MulSV(1.0/dist, delta)
+			}
+
+			overlap := minDist - dist
+			push = vec2.Add(push, vec2.MulSV(overlap*overlap, dir))
+		}
+
+		if vec2.NormSquared(push) > 0.005 {
+			subjectNext := w.NextState.Entities[i]
+			subjectNext.Position = vec2.Add(subjectNext.Position, vec2.MulSV(0.5, push))
+		}
 	}
 }
 
@@ -740,6 +793,13 @@ const (
 	EntityTypeBarn
 )
 
+// Collision radii for the entity types that participate in collision.
+const (
+	TreeCollisionRadius   = 0.3
+	BushCollisionRadius   = 0.3
+	PersonCollisionRadius = 0.2
+)
+
 // Tribe is the faction an entity belongs to. It's only meaningful for
 // EntityTypeBarn, EntityTypeMan, and EntityTypeWoman.
 type Tribe int
@@ -807,6 +867,12 @@ type Entity struct {
 	// Allegiance
 	Tribe Tribe
 
+	// CollisionRadius is the radius of this entity's collision circle. A
+	// value of 0 means the entity does not participate in collision at all.
+	// Only EntityTypeTree, EntityTypeBush, EntityTypeWoman, and
+	// EntityTypeMan set this to a nonzero value.
+	CollisionRadius float64
+
 	// GatherBerries subsystem
 	GatherBerriesState     GatherBerriesState
 	GatherBerriesHasTarget bool
@@ -832,6 +898,8 @@ func CopyEnt(src, dst *Entity) {
 	dst.Variant = src.Variant
 
 	dst.Tribe = src.Tribe
+
+	dst.CollisionRadius = src.CollisionRadius
 
 	dst.GatherBerriesState = src.GatherBerriesState
 	dst.GatherBerriesHasTarget = src.GatherBerriesHasTarget
