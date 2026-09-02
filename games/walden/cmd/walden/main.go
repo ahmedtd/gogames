@@ -23,6 +23,7 @@ import (
 	"github.com/google/subcommands"
 
 	"github.com/hajimehoshi/ebiten/v2"
+	"github.com/hajimehoshi/ebiten/v2/vector"
 )
 
 var (
@@ -108,6 +109,9 @@ type Renderer struct {
 
 	ShowEntCenters         bool
 	ShowEntCentersDebounce bool
+
+	ShowBerryGradient         bool
+	ShowBerryGradientDebounce bool
 }
 
 var _ ebiten.Game = (*Renderer)(nil)
@@ -139,6 +143,15 @@ func (r *Renderer) Update() error {
 		}
 	} else {
 		r.ShowEntCentersDebounce = false
+	}
+
+	if ebiten.IsKeyPressed(ebiten.KeyF4) {
+		if !r.ShowBerryGradientDebounce {
+			r.ShowBerryGradientDebounce = true
+			r.ShowBerryGradient = !r.ShowBerryGradient
+		}
+	} else {
+		r.ShowBerryGradientDebounce = false
 	}
 
 	userInput := &UserInput{
@@ -284,8 +297,44 @@ func (r *Renderer) drawTerrain(screen *ebiten.Image, viewport viewport2.Viewport
 				viewport.WorldToScreenMatrix,
 				mat33.Transform2(1.0/128, mat22.Identity(), bl),
 			)
+
+			if r.ShowBerryGradient {
+				r.drawBerryGradientTile(screen, viewport, ter, x, y, tileBox)
+			}
 		}
 	}
+}
+
+// berryGradientDisplayMaxCost is the path cost (in cells) at which the
+// F4 debug overlay saturates to fully red.
+const berryGradientDisplayMaxCost = 20.0
+
+// drawBerryGradientTile draws a translucent red overlay on tile (x, y),
+// with opacity proportional to the tile's precomputed cost-to-nearest-bush
+// (Terrain.BerryPathCosts). This is a debug visualization for the F4 key,
+// toggled via Renderer.ShowBerryGradient.
+func (r *Renderer) drawBerryGradientTile(screen *ebiten.Image, viewport viewport2.Viewport, ter *Terrain, x, y int, tileBox aabox2.T) {
+	cost := ter.BerryPathCostAt(x, y)
+	if cost <= 0 {
+		return
+	}
+
+	normalizedCost := float64(cost) / berryGradientDisplayMaxCost
+	if normalizedCost > 1.0 || math.IsInf(float64(cost), 1) {
+		normalizedCost = 1.0
+	}
+
+	tint := color.RGBA{0xff, 0x00, 0x00, uint8(normalizedCost * 200)}
+
+	p0 := viewport.WorldPositionToScreenPosition(tileBox.Lo)
+	p1 := viewport.WorldPositionToScreenPosition(tileBox.Hi)
+
+	minX := math.Min(p0[0], p1[0])
+	maxX := math.Max(p0[0], p1[0])
+	minY := math.Min(p0[1], p1[1])
+	maxY := math.Max(p0[1], p1[1])
+
+	vector.DrawFilledRect(screen, float32(minX), float32(minY), float32(maxX-minX), float32(maxY-minY), tint, false)
 }
 
 func (r *Renderer) Layout(outsideWidth, outsideHeight int) (int, int) {
