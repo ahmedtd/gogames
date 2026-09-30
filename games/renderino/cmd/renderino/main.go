@@ -23,9 +23,8 @@ import (
 	"time"
 
 	"github.com/ahmedtd/gogames/embeddedassets/departuremonofont"
-	"github.com/ahmedtd/gogames/lib/vmath/faffinetransform3"
-	"github.com/ahmedtd/gogames/lib/vmath/fmat33"
-	"github.com/ahmedtd/gogames/lib/vmath/fvec3"
+	"github.com/ahmedtd/gogames/lib/vmath/fmat44"
+	"github.com/ahmedtd/gogames/lib/vmath/fvec4"
 
 	"github.com/barnex/fmath"
 	"github.com/google/subcommands"
@@ -156,9 +155,9 @@ var _ ebiten.Game = &Renderer{}
 
 func NewRenderer(numRenderThreads int) (*Renderer, error) {
 	camera := &PinholeCamera{
-		Center:          fvec3.T{-10, 0, 10},
-		ApertureToWorld: fmat33.T{1, 0, 0, 0, 1, 0, 0, 0, 1},
-		Aperture:        fvec3.T{0.02, 0.018, 0.012},
+		Center:          fvec4.T{-10, 0, 10},
+		ApertureToWorld: fmat44.Identity(),
+		Aperture:        fvec4.T{0.02, 0.018, 0.012},
 	}
 
 	renderGroup := &errgroup.Group{}
@@ -177,13 +176,13 @@ func NewRenderer(numRenderThreads int) (*Renderer, error) {
 		},
 		DirectionalLights: []DirectionalLight{
 			{
-				DirectionToSource: fvec3.Normalize(fvec3.T{1, 1, 1}),
+				DirectionToSource: fvec4.Normalize(fvec4.T{1, 1, 1}),
 				Power:             RGBPower{1.0, 1.0, 1.0},
 			},
 		},
 		PointLights: []PointLight{
 			{
-				Center: fvec3.T{5, 0, 0},
+				Center: fvec4.T{5, 0, 0},
 				Power:  RGBPower{1.0, 0.0, 0.0},
 			},
 		},
@@ -199,14 +198,14 @@ func NewRenderer(numRenderThreads int) (*Renderer, error) {
 	// Initialize boids
 	previousWorldState.BoidRNG = rand.New(rand.NewPCG(1, 2))
 	previousWorldState.NextBoidTargetSwitchTime = 10.0
-	previousWorldState.BoidTarget = fvec3.UniformSphereDistribution(rng, 100.0)
+	previousWorldState.BoidTarget = fvec4.UniformSphereDistribution(rng, 100.0)
 	previousWorldState.BoidTarget[2] = 0
-	previousWorldState.BoidPositions = make([]fvec3.T, 1000)
-	previousWorldState.BoidVelocities = make([]fvec3.T, 1000)
+	previousWorldState.BoidPositions = make([]fvec4.T, 1000)
+	previousWorldState.BoidVelocities = make([]fvec4.T, 1000)
 	for i := 0; i < 1000; i++ {
-		previousWorldState.BoidPositions[i] = fvec3.UniformSphereDistribution(rng, 100.0)
+		previousWorldState.BoidPositions[i] = fvec4.UniformSphereDistribution(rng, 100.0)
 		previousWorldState.BoidPositions[i][2] = 0
-		previousWorldState.BoidVelocities[i] = fvec3.UniformSphereDistribution(rng, 1.0)
+		previousWorldState.BoidVelocities[i] = fvec4.UniformSphereDistribution(rng, 1.0)
 		previousWorldState.BoidVelocities[i][2] = 0
 	}
 
@@ -230,6 +229,25 @@ func NewRenderer(numRenderThreads int) (*Renderer, error) {
 	}
 
 	return r, nil
+}
+
+// axisAngleMat44 builds a 4x4 rotation matrix (a 3x3 rotation embedded in the
+// top-left block, with the last row/column set to the identity) that rotates
+// by angle radians around axis u. u's w component is ignored.
+func axisAngleMat44(u fvec4.T, angle float32) fmat44.T {
+	c := fmath.Cos(angle)
+	s := fmath.Sin(angle)
+
+	ux := u[0]
+	uy := u[1]
+	uz := u[2]
+
+	return fmat44.T{
+		ux*ux*(1-c) + c, ux*uy*(1-c) - uz*s, ux*uz*(1-c) + uy*s, 0,
+		ux*uy*(1-c) + uz*s, uy*uy*(1-c) + c, uy*uz*(1-c) - ux*s, 0,
+		ux*uz*(1-c) - uy*s, uy*uz*(1-c) + ux*s, uz*uz*(1-c) + c, 0,
+		0, 0, 0, 1,
+	}
 }
 
 func (r *Renderer) Update() error {
@@ -284,84 +302,84 @@ func (r *Renderer) Update() error {
 
 	if r.PreviousWorldState.SimTime > r.PreviousWorldState.NextBoidTargetSwitchTime {
 		r.LatestWorldState.NextBoidTargetSwitchTime = r.PreviousWorldState.SimTime + 10.0
-		r.LatestWorldState.BoidTarget = fvec3.UniformSphereDistribution(r.PreviousWorldState.BoidRNG, 100.0)
+		r.LatestWorldState.BoidTarget = fvec4.UniformSphereDistribution(r.PreviousWorldState.BoidRNG, 100.0)
 		r.LatestWorldState.BoidTarget[2] = 0.0
 	}
 
 	if len(r.LatestWorldState.BoidPositions) != len(r.PreviousWorldState.BoidPositions) {
-		r.LatestWorldState.BoidPositions = make([]fvec3.T, len(r.PreviousWorldState.BoidPositions))
+		r.LatestWorldState.BoidPositions = make([]fvec4.T, len(r.PreviousWorldState.BoidPositions))
 	}
 	if len(r.LatestWorldState.BoidVelocities) != len(r.PreviousWorldState.BoidVelocities) {
-		r.LatestWorldState.BoidVelocities = make([]fvec3.T, len(r.PreviousWorldState.BoidVelocities))
+		r.LatestWorldState.BoidVelocities = make([]fvec4.T, len(r.PreviousWorldState.BoidVelocities))
 	}
 
 	target := r.PreviousWorldState.BoidTarget
 
 	// Boids update
 	for i := 0; i < len(r.LatestWorldState.BoidPositions); i++ {
-		force := fvec3.T{}
+		force := fvec4.T{}
 
 		// Every boid is attracted towards the flock target and wants to circle around it.
-		offset := fvec3.SubVV(target, r.PreviousWorldState.BoidPositions[i])
+		offset := fvec4.SubVV(target, r.PreviousWorldState.BoidPositions[i])
 		homingForce := offset
-		force = fvec3.AddVV(force, homingForce)
-		// circForce := fvec3.CProd(offset, fvec3.T{0.0, 0.0, 1.0})
-		// force = fvec3.AddVV(force, fvec3.Normalize(circForce))
+		force = fvec4.AddVV(force, homingForce)
+		// circForce := fvec4.CProd3(offset, fvec4.T{0.0, 0.0, 1.0})
+		// force = fvec4.AddVV(force, fvec4.Normalize(circForce))
 
 		// Every boid gets a drag force.
 		speed := r.PreviousWorldState.BoidVelocities[i].Norm()
 		if speed > 1.0 {
-			dragForce := fvec3.MulVS(r.PreviousWorldState.BoidVelocities[i], -1.0*0.1*speed)
-			force = fvec3.AddVV(force, dragForce)
+			dragForce := fvec4.MulVS(r.PreviousWorldState.BoidVelocities[i], -1.0*0.1*speed)
+			force = fvec4.AddVV(force, dragForce)
 		}
 
 		numCohesionInfluencers := 0
-		averagePositionOfNeighbors := fvec3.T{}
+		averagePositionOfNeighbors := fvec4.T{}
 		numAlignmentInfluencers := 0
-		averageVelocityOfNeighbors := fvec3.T{}
-		totalSeparationForce := fvec3.T{}
+		averageVelocityOfNeighbors := fvec4.T{}
+		totalSeparationForce := fvec4.T{}
 		for j := 0; j < len(r.PreviousWorldState.BoidPositions); j++ {
 			// Don't influence yourself.
 			if i == j {
 				continue
 			}
 
-			offset := fvec3.SubVV(r.PreviousWorldState.BoidPositions[i], r.PreviousWorldState.BoidPositions[j])
+			offset := fvec4.SubVV(r.PreviousWorldState.BoidPositions[i], r.PreviousWorldState.BoidPositions[j])
 			separationDistanceSquared := offset[0]*offset[0] + offset[1]*offset[1] + offset[2]*offset[2]
 
 			if separationDistanceSquared < 9.0 {
 				numCohesionInfluencers++
-				averagePositionOfNeighbors = fvec3.AddVV(averagePositionOfNeighbors, r.PreviousWorldState.BoidPositions[j])
+				averagePositionOfNeighbors = fvec4.AddVV(averagePositionOfNeighbors, r.PreviousWorldState.BoidPositions[j])
 			}
 
 			if separationDistanceSquared < 36.0 {
 				numAlignmentInfluencers++
-				averageVelocityOfNeighbors = fvec3.AddVV(averageVelocityOfNeighbors, r.PreviousWorldState.BoidVelocities[j])
+				averageVelocityOfNeighbors = fvec4.AddVV(averageVelocityOfNeighbors, r.PreviousWorldState.BoidVelocities[j])
 			}
 
 			if separationDistanceSquared < 4.0 {
-				separationHeading := fvec3.Normalize(offset)
-				totalSeparationForce = fvec3.AddVV(totalSeparationForce, fvec3.MulVS(separationHeading, 100.0/(1.0+separationDistanceSquared)))
+				separationHeading := fvec4.Normalize(offset)
+				totalSeparationForce = fvec4.AddVV(totalSeparationForce, fvec4.MulVS(separationHeading, 100.0/(1.0+separationDistanceSquared)))
 			}
 		}
 
 		// Calculate cohesion
 		if numCohesionInfluencers != 0 {
-			averagePositionOfNeighbors = fvec3.DivVS(averagePositionOfNeighbors, float32(numCohesionInfluencers))
-			cohesionOffset := fvec3.SubVV(averagePositionOfNeighbors, r.PreviousWorldState.BoidPositions[i])
-			totalCohesionForce := fvec3.MulVS(cohesionOffset, 0.5)
-			force = fvec3.AddVV(force, totalCohesionForce)
+			averagePositionOfNeighbors = fvec4.DivVS(averagePositionOfNeighbors, float32(numCohesionInfluencers))
+			cohesionOffset := fvec4.SubVV(averagePositionOfNeighbors, r.PreviousWorldState.BoidPositions[i])
+			totalCohesionForce := fvec4.MulVS(cohesionOffset, 0.5)
+			force = fvec4.AddVV(force, totalCohesionForce)
 		}
 
 		// Calculate alignment
 		if numAlignmentInfluencers != 0 {
-			averageVelocityOfNeighbors = fvec3.DivVS(averageVelocityOfNeighbors, float32(numAlignmentInfluencers))
-			totalAlignmentForce := fvec3.MulVS(averageVelocityOfNeighbors, 1.0)
-			force = fvec3.AddVV(force, totalAlignmentForce)
+			averageVelocityOfNeighbors = fvec4.DivVS(averageVelocityOfNeighbors, float32(numAlignmentInfluencers))
+			totalAlignmentForce := fvec4.MulVS(averageVelocityOfNeighbors, 1.0)
+			force = fvec4.AddVV(force, totalAlignmentForce)
 		}
 
 		// Apply separation.
-		force = fvec3.AddVV(force, totalSeparationForce)
+		force = fvec4.AddVV(force, totalSeparationForce)
 
 		r.LatestWorldState.BoidVelocities[i][0] = r.PreviousWorldState.BoidVelocities[i][0] + 0.1*force[0]*(1.0/60.0)
 		r.LatestWorldState.BoidVelocities[i][1] = r.PreviousWorldState.BoidVelocities[i][1] + 0.1*force[1]*(1.0/60.0)
@@ -398,13 +416,13 @@ func (r *Renderer) Update() error {
 	cursorDeltaY := r.LatestWorldState.CursorY - r.PreviousWorldState.CursorY
 	rotateAngleX := float32(cursorDeltaX) * 0.005
 	rotateAngleY := float32(cursorDeltaY) * 0.005
-	rotateX := faffinetransform3.AxisAngle(fvec3.T{0.0, 0.0, 1.0}, -rotateAngleX)
-	rotateY := faffinetransform3.AxisAngle(r.LatestRenderState.Camera.Left(), rotateAngleY)
-	r.LatestRenderState.Camera.ApertureToWorld = fmat33.Orthonormalize(fmat33.MulMM(fmat33.MulMM(rotateX.Linear, rotateY.Linear),
+	rotateX := axisAngleMat44(fvec4.T{0.0, 0.0, 1.0}, -rotateAngleX)
+	rotateY := axisAngleMat44(r.LatestRenderState.Camera.Left(), rotateAngleY)
+	r.LatestRenderState.Camera.ApertureToWorld = fmat44.Orthonormalize(fmat44.MulMM(fmat44.MulMM(rotateX, rotateY),
 		r.LatestRenderState.Camera.ApertureToWorld))
 
 	// TODO: Derive LatestRenderState from LatestWorldState
-	r.LatestRenderState.PointLights[0].Center = fvec3.T{
+	r.LatestRenderState.PointLights[0].Center = fvec4.T{
 		float32(math.Cos(r.LatestWorldState.SimTime)),
 		float32(math.Sin(r.LatestWorldState.SimTime)),
 		2.0,
@@ -488,13 +506,13 @@ func (r *Renderer) Draw(screen *ebiten.Image) {
 						tx := px - tile.SrcX
 						ty := py - tile.SrcY
 
-						apertureCoords := fvec3.T{
+						apertureCoords := fvec4.T{
 							r.LatestRenderState.Camera.Aperture[0],
 							(1.0 - 2.0*float32(px)/float32(rx)) * r.LatestRenderState.Camera.Aperture[1],
 							(1.0 - 2.0*float32(py)/float32(ry)) * r.LatestRenderState.Camera.Aperture[2],
 						}
 
-						tile.CameraRays[ty*tileSizeX+tx] = fvec3.Normalize(apertureCoords)
+						tile.CameraRays[ty*tileSizeX+tx] = fvec4.Normalize(apertureCoords)
 					}
 				}
 
@@ -606,14 +624,14 @@ type WorldState struct {
 
 	CursorX, CursorY int
 
-	CameraPosition fvec3.T
-	CameraEye      fvec3.T
+	CameraPosition fvec4.T
+	CameraEye      fvec4.T
 
 	BoidRNG                  *rand.Rand
 	NextBoidTargetSwitchTime float64
-	BoidTarget               fvec3.T
-	BoidPositions            []fvec3.T
-	BoidVelocities           []fvec3.T
+	BoidTarget               fvec4.T
+	BoidPositions            []fvec4.T
+	BoidVelocities           []fvec4.T
 }
 
 type RenderState struct {
@@ -638,7 +656,7 @@ func (r *RenderState) RenderTile(tile *RenderTile, rx, ry int) {
 			tx := px - tile.SrcX
 			ty := py - tile.SrcY
 
-			raySlope := fmat33.MulMV(r.Camera.ApertureToWorld, tile.CameraRays[ty*tileSizeX+tx])
+			raySlope := fmat44.MulMV(r.Camera.ApertureToWorld, tile.CameraRays[ty*tileSizeX+tx])
 
 			ray := Ray{
 				Point: r.Camera.Center,
@@ -686,7 +704,7 @@ func (r *RenderState) matteShade(contact *Contact) RGBPower {
 	}
 
 	for _, l := range r.DirectionalLights {
-		dot := fvec3.IProd(contact.N, l.DirectionToSource)
+		dot := fvec4.IProd(contact.N, l.DirectionToSource)
 		if dot > 0.0 {
 			totalPower[0] += dot * l.Power[0]
 			totalPower[1] += dot * l.Power[1]
@@ -695,12 +713,12 @@ func (r *RenderState) matteShade(contact *Contact) RGBPower {
 	}
 
 	for _, l := range r.PointLights {
-		vToLight := fvec3.SubVV(l.Center, contact.P)
+		vToLight := fvec4.SubVV(l.Center, contact.P)
 		distanceToLight := vToLight.Norm()
-		dirToLight := fvec3.DivVS(vToLight, distanceToLight)
+		dirToLight := fvec4.DivVS(vToLight, distanceToLight)
 		falloff := 1.0 / distanceToLight / distanceToLight
 
-		dot := fvec3.IProd(contact.N, dirToLight)
+		dot := fvec4.IProd(contact.N, dirToLight)
 		if dot > 0.0 {
 			totalPower[0] += dot * falloff * l.Power[0]
 			totalPower[1] += dot * falloff * l.Power[1]
@@ -712,73 +730,73 @@ func (r *RenderState) matteShade(contact *Contact) RGBPower {
 }
 
 type Ray struct {
-	Point fvec3.T
-	Slope fvec3.T
+	Point fvec4.T
+	Slope fvec4.T
 }
 
-func (r *Ray) Eval(t float32) fvec3.T {
-	return fvec3.AddVV(r.Point, fvec3.MulVS(r.Slope, t))
+func (r *Ray) Eval(t float32) fvec4.T {
+	return fvec4.AddVV(r.Point, fvec4.MulVS(r.Slope, t))
 }
 
 type RGBPower [3]float32
 
 type PinholeCamera struct {
-	Center          fvec3.T
-	ApertureToWorld fmat33.T
-	Aperture        fvec3.T
+	Center          fvec4.T
+	ApertureToWorld fmat44.T
+	Aperture        fvec4.T
 }
 
-func (c *PinholeCamera) Eye() fvec3.T {
-	return fvec3.T{
+func (c *PinholeCamera) Eye() fvec4.T {
+	return fvec4.T{
 		c.ApertureToWorld[0],
-		c.ApertureToWorld[3],
-		c.ApertureToWorld[6],
-	}
-}
-
-func (c *PinholeCamera) Left() fvec3.T {
-	return fvec3.T{
-		c.ApertureToWorld[1],
 		c.ApertureToWorld[4],
-		c.ApertureToWorld[7],
-	}
-}
-
-func (c *PinholeCamera) Up() fvec3.T {
-	return fvec3.T{
-		c.ApertureToWorld[2],
-		c.ApertureToWorld[5],
 		c.ApertureToWorld[8],
 	}
 }
 
-func (c *PinholeCamera) SetEye(newEye fvec3.T) {
-	c.setEyeDirect(fvec3.Normalize(newEye))
-	c.setUpDirect(fvec3.Normalize(fvec3.Reject(c.Eye(), c.Up())))
-	c.setLeftDirect(fvec3.CProd(c.Up(), c.Eye()))
+func (c *PinholeCamera) Left() fvec4.T {
+	return fvec4.T{
+		c.ApertureToWorld[1],
+		c.ApertureToWorld[5],
+		c.ApertureToWorld[9],
+	}
 }
 
-func (c *PinholeCamera) SetUp(newUp fvec3.T) {
-	c.setUpDirect(fvec3.Normalize(fvec3.Reject(c.Eye(), newUp)))
-	c.setLeftDirect(fvec3.CProd(c.Up(), c.Eye()))
+func (c *PinholeCamera) Up() fvec4.T {
+	return fvec4.T{
+		c.ApertureToWorld[2],
+		c.ApertureToWorld[6],
+		c.ApertureToWorld[10],
+	}
 }
 
-func (c *PinholeCamera) setEyeDirect(newEye fvec3.T) {
+func (c *PinholeCamera) SetEye(newEye fvec4.T) {
+	c.setEyeDirect(fvec4.Normalize(newEye))
+	c.setUpDirect(fvec4.Normalize(fvec4.Reject(c.Eye(), c.Up())))
+	c.setLeftDirect(fvec4.CProd3(c.Up(), c.Eye()))
+}
+
+func (c *PinholeCamera) SetUp(newUp fvec4.T) {
+	c.setUpDirect(fvec4.Normalize(fvec4.Reject(c.Eye(), newUp)))
+	c.setLeftDirect(fvec4.CProd3(c.Up(), c.Eye()))
+}
+
+func (c *PinholeCamera) setEyeDirect(newEye fvec4.T) {
 	c.ApertureToWorld[0] = newEye[0]
-	c.ApertureToWorld[3] = newEye[1]
-	c.ApertureToWorld[6] = newEye[2]
+	c.ApertureToWorld[4] = newEye[1]
+	c.ApertureToWorld[8] = newEye[2]
 }
 
-func (c *PinholeCamera) setLeftDirect(newLeft fvec3.T) {
+func (c *PinholeCamera) setLeftDirect(newLeft fvec4.T) {
 	c.ApertureToWorld[1] = newLeft[0]
-	c.ApertureToWorld[4] = newLeft[1]
-	c.ApertureToWorld[7] = newLeft[2]
+	c.ApertureToWorld[5] = newLeft[1]
+	c.ApertureToWorld[9] = newLeft[2]
 }
 
-func (c *PinholeCamera) setUpDirect(newUp fvec3.T) {
+func (c *PinholeCamera) setUpDirect(newUp fvec4.T) {
 	c.ApertureToWorld[2] = newUp[0]
-	c.ApertureToWorld[5] = newUp[1]
-	c.ApertureToWorld[8] = newUp[2]
+	c.ApertureToWorld[6] = newUp[1]
+	c.ApertureToWorld[10] = newUp[2]
 }
 
 type ContactMode int
@@ -795,20 +813,20 @@ type Contact struct {
 	ExitRay Ray
 
 	T float32
-	P fvec3.T
-	N fvec3.T
+	P fvec4.T
+	N fvec4.T
 
 	Mtl0, Mtl1, Mtl2 float32
 }
 
 type Sphere struct {
-	Center fvec3.T
+	Center fvec4.T
 	Radius float32
 }
 
 func (s *Sphere) RayContact(ray Ray, queryLo, queryHi float32) Contact {
 	a := ray.Slope[0]*ray.Slope[0] + ray.Slope[1]*ray.Slope[1] + ray.Slope[2]*ray.Slope[2]
-	offset := fvec3.SubVV(ray.Point, s.Center)
+	offset := fvec4.SubVV(ray.Point, s.Center)
 	b := 2 * (offset[0]*ray.Slope[0] + offset[1]*ray.Slope[1] + offset[2]*ray.Slope[2])
 	c := offset[0]*offset[0] + offset[1]*offset[1] + offset[2]*offset[2] - s.Radius*s.Radius
 
@@ -831,7 +849,7 @@ func (s *Sphere) RayContact(ray Ray, queryLo, queryHi float32) Contact {
 
 			T: tMin,
 			P: p,
-			N: fvec3.Normalize(p),
+			N: fvec4.Normalize(p),
 
 			Mtl0: p[0],
 			Mtl1: p[1],
@@ -846,7 +864,7 @@ func (s *Sphere) RayContact(ray Ray, queryLo, queryHi float32) Contact {
 
 			T: tMin,
 			P: p,
-			N: fvec3.Normalize(p),
+			N: fvec4.Normalize(p),
 
 			Mtl0: p[0],
 			Mtl1: p[1],
@@ -856,8 +874,8 @@ func (s *Sphere) RayContact(ray Ray, queryLo, queryHi float32) Contact {
 }
 
 type AABB struct {
-	Lo fvec3.T
-	Hi fvec3.T
+	Lo fvec4.T
+	Hi fvec4.T
 }
 
 func (b *AABB) RayContact(ray Ray, queryLo, queryHi float32) Contact {
@@ -883,11 +901,11 @@ func (b *AABB) RayContact(ray Ray, queryLo, queryHi float32) Contact {
 			minValidContact.T = tXLo
 			if ray.Slope[0] >= 0 {
 				minValidContact.Mode = ContactModeEnter
-				minValidContact.N = fvec3.T{-1, 0, 0}
+				minValidContact.N = fvec4.T{-1, 0, 0}
 
 			} else {
 				minValidContact.Mode = ContactModeExit
-				minValidContact.N = fvec3.T{1, 0, 0}
+				minValidContact.N = fvec4.T{1, 0, 0}
 			}
 		}
 	}
@@ -901,10 +919,10 @@ func (b *AABB) RayContact(ray Ray, queryLo, queryHi float32) Contact {
 			minValidContact.T = tXHi
 			if ray.Slope[0] < 0 {
 				minValidContact.Mode = ContactModeEnter
-				minValidContact.N = fvec3.T{1, 0, 0}
+				minValidContact.N = fvec4.T{1, 0, 0}
 			} else {
 				minValidContact.Mode = ContactModeExit
-				minValidContact.N = fvec3.T{-1, 0, 0}
+				minValidContact.N = fvec4.T{-1, 0, 0}
 			}
 		}
 	}
@@ -918,10 +936,10 @@ func (b *AABB) RayContact(ray Ray, queryLo, queryHi float32) Contact {
 			minValidContact.T = tYLo
 			if ray.Slope[1] >= 0 {
 				minValidContact.Mode = ContactModeEnter
-				minValidContact.N = fvec3.T{0, -1, 0}
+				minValidContact.N = fvec4.T{0, -1, 0}
 			} else {
 				minValidContact.Mode = ContactModeExit
-				minValidContact.N = fvec3.T{0, 1, 0}
+				minValidContact.N = fvec4.T{0, 1, 0}
 			}
 		}
 	}
@@ -935,10 +953,10 @@ func (b *AABB) RayContact(ray Ray, queryLo, queryHi float32) Contact {
 			minValidContact.T = tYHi
 			if ray.Slope[1] < 0 {
 				minValidContact.Mode = ContactModeEnter
-				minValidContact.N = fvec3.T{0, 1, 0}
+				minValidContact.N = fvec4.T{0, 1, 0}
 			} else {
 				minValidContact.Mode = ContactModeExit
-				minValidContact.N = fvec3.T{0, -1, 0}
+				minValidContact.N = fvec4.T{0, -1, 0}
 			}
 		}
 	}
@@ -952,10 +970,10 @@ func (b *AABB) RayContact(ray Ray, queryLo, queryHi float32) Contact {
 			minValidContact.T = tZLo
 			if ray.Slope[2] >= 0 {
 				minValidContact.Mode = ContactModeEnter
-				minValidContact.N = fvec3.T{0, 0, -1}
+				minValidContact.N = fvec4.T{0, 0, -1}
 			} else {
 				minValidContact.Mode = ContactModeExit
-				minValidContact.N = fvec3.T{0, 0, 1}
+				minValidContact.N = fvec4.T{0, 0, 1}
 			}
 		}
 	}
@@ -969,10 +987,10 @@ func (b *AABB) RayContact(ray Ray, queryLo, queryHi float32) Contact {
 			minValidContact.T = tZHi
 			if ray.Slope[2] < 0 {
 				minValidContact.Mode = ContactModeEnter
-				minValidContact.N = fvec3.T{0, 0, 1}
+				minValidContact.N = fvec4.T{0, 0, 1}
 			} else {
 				minValidContact.Mode = ContactModeExit
-				minValidContact.N = fvec3.T{0, 0, -1}
+				minValidContact.N = fvec4.T{0, 0, -1}
 			}
 		}
 	}
@@ -993,11 +1011,11 @@ type AmbientLight struct {
 }
 
 type DirectionalLight struct {
-	DirectionToSource fvec3.T
+	DirectionToSource fvec4.T
 	Power             RGBPower
 }
 
 type PointLight struct {
-	Center fvec3.T
+	Center fvec4.T
 	Power  RGBPower
 }

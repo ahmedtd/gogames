@@ -5,7 +5,7 @@ package main
 import (
 	"slices"
 
-	"github.com/ahmedtd/gogames/lib/vmath/fvec3"
+	"github.com/ahmedtd/gogames/lib/vmath/fvec4"
 )
 
 type BVHTree struct {
@@ -56,7 +56,7 @@ func (t *BVHTree) GetFreeNode() *BVHNode {
 // RayTest fires a ray through the BVH tree, invoking checkSceneElement with the
 // index of any scene element that could be hit.
 func (t *BVHTree) RayTest(ray Ray, checkRef func(ref int)) {
-	inverseSlope := fvec3.T{
+	inverseSlope := fvec4.T{
 		1.0 / ray.Slope[0],
 		1.0 / ray.Slope[1],
 		1.0 / ray.Slope[2],
@@ -95,8 +95,8 @@ const (
 
 type BVHNode struct {
 	Type BVHNodeType
-	Lo   fvec3.T
-	Hi   fvec3.T
+	Lo   fvec4.T
+	Hi   fvec4.T
 
 	Ref int
 
@@ -143,12 +143,12 @@ func (t *BVHTree) assembleBVHTree(elements []*BVHNode, axis int) *BVHNode {
 	loChild := t.assembleBVHTree(elements[0:splitIndex], (axis+1)%3)
 	hiChild := t.assembleBVHTree(elements[splitIndex:], (axis+1)%3)
 
-	boundsLo := fvec3.T{}
+	boundsLo := fvec4.T{}
 	boundsLo[0] = min(loChild.Lo[0], hiChild.Lo[0])
 	boundsLo[1] = min(loChild.Lo[1], hiChild.Lo[1])
 	boundsLo[2] = min(loChild.Lo[2], hiChild.Lo[2])
 
-	boundsHi := fvec3.T{}
+	boundsHi := fvec4.T{}
 	boundsHi[0] = max(loChild.Hi[0], hiChild.Hi[0])
 	boundsHi[1] = max(loChild.Hi[1], hiChild.Hi[1])
 	boundsHi[2] = max(loChild.Hi[2], hiChild.Hi[2])
@@ -163,14 +163,14 @@ func (t *BVHTree) assembleBVHTree(elements []*BVHNode, axis int) *BVHNode {
 	return node
 }
 
-func (b *BVHNode) Reset(nodeType BVHNodeType, lo, hi fvec3.T, ref int) {
+func (b *BVHNode) Reset(nodeType BVHNodeType, lo, hi fvec4.T, ref int) {
 	b.Type = nodeType
 	b.Lo = lo
 	b.Hi = hi
 	b.Ref = ref
 }
 
-func (b *BVHNode) RayTest(point, inverseSlope fvec3.T) bool {
+func (b *BVHNode) RayTest(point, inverseSlope fvec4.T) bool {
 	// https://tavianator.com/2011/ray_box.html
 
 	tx1 := (b.Lo[0] - point[0]) * inverseSlope[0]

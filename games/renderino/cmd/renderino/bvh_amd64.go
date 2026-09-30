@@ -6,7 +6,7 @@ import (
 	"simd/archsimd"
 	"slices"
 
-	"github.com/ahmedtd/gogames/lib/vmath/fvec3"
+	"github.com/ahmedtd/gogames/lib/vmath/fvec4"
 )
 
 type BVHTree struct {
@@ -162,7 +162,7 @@ type BVHNode struct {
 	HiChild *BVHNode
 }
 
-func (b *BVHNode) Reset(nodeType BVHNodeType, lo, hi fvec3.T, ref int) {
+func (b *BVHNode) Reset(nodeType BVHNodeType, lo, hi fvec4.T, ref int) {
 	b.Type = nodeType
 	b.Lo = ([4]float32)(lo)
 	b.Hi = ([4]float32)(hi)
