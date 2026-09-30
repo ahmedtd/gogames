@@ -2,7 +2,6 @@ package fmat33
 
 import (
 	"github.com/ahmedtd/gogames/lib/vmath/fvec2"
-	"github.com/ahmedtd/gogames/lib/vmath/fvec3"
 
 	"github.com/barnex/fmath"
 )
@@ -55,14 +54,6 @@ func MulMM(a, b T) T {
 		}
 	}
 	return result
-}
-
-func MulMV(a T, b fvec3.T) fvec3.T {
-	return fvec3.T{
-		a[0]*b[0] + a[1]*b[1] + a[2]*b[2],
-		a[3]*b[0] + a[4]*b[1] + a[5]*b[2],
-		a[6]*b[0] + a[7]*b[1] + a[8]*b[2],
-	}
 }
 
 func MulMV2(a T, b fvec2.T) fvec2.T {
