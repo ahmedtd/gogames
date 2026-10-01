@@ -502,10 +502,10 @@ func (r *Renderer) Draw(screen *ebiten.Image) {
 				}
 
 				// Build the pinhole camera rays for this tile.
-				for px := tile.SrcX; px < tile.LimX; px++ {
-					for py := tile.SrcY; py < tile.LimY; py++ {
+				for py := tile.SrcY; py < tile.LimY; py++ {
+					ty := py - tile.SrcY
+					for px := tile.SrcX; px < tile.LimX; px++ {
 						tx := px - tile.SrcX
-						ty := py - tile.SrcY
 
 						apertureCoords := fvec4.T{
 							r.LatestRenderState.Camera.Aperture[0],
@@ -642,10 +642,10 @@ type RenderState struct {
 func (r *RenderState) RenderTile(tile *RenderTile, rx, ry int) {
 	tileSizeX := tile.LimX - tile.SrcX
 
-	for px := tile.SrcX; px < tile.LimX; px++ {
-		for py := tile.SrcY; py < tile.LimY; py++ {
+	for py := tile.SrcY; py < tile.LimY; py++ {
+		ty := py - tile.SrcY
+		for px := tile.SrcX; px < tile.LimX; px++ {
 			tx := px - tile.SrcX
-			ty := py - tile.SrcY
 
 			raySlope := fmat44.MulMV(r.Camera.ApertureToWorld, tile.CameraRays[ty*tileSizeX+tx])
 
