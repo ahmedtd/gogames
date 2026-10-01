@@ -19,7 +19,6 @@ import (
 	_ "net/http/pprof"
 	"os"
 	"runtime/pprof"
-	"sync"
 	"time"
 
 	"github.com/ahmedtd/gogames/embeddedassets/departuremonofont"
@@ -133,9 +132,6 @@ type Renderer struct {
 
 	renderImage *ebiten.Image
 	buf         []byte
-	bufLock     sync.Mutex
-
-	RGBPowerBuf []RGBPower
 
 	uiFaceSource *text.GoTextFaceSource
 	uiNormalFace *text.GoTextFace
@@ -145,6 +141,9 @@ type RenderTile struct {
 	SrcX, SrcY  int
 	LimX, LimY  int
 	RGBPowerBuf []RGBPower
+
+	// Maximum pixel magnitude in RGBPowerBuf, from the most recent render.
+	MaxMag float32
 
 	// Size (LimX-SrcX)*(LimY-SrcY)
 	IndexBuf   [][4]float32
@@ -478,7 +477,6 @@ func (r *Renderer) Draw(screen *ebiten.Image) {
 	if r.renderImage == nil || r.renderImage.Bounds().Dx() != rx || r.renderImage.Bounds().Dy() != ry {
 		r.renderImage = ebiten.NewImage(rx, ry)
 		r.buf = make([]byte, rx*ry*4)
-		r.RGBPowerBuf = make([]RGBPower, rx*ry)
 
 		r.tiles = []*RenderTile{}
 		for tileSrcX := 0; tileSrcX < rx; tileSrcX += r.TileSize {
@@ -522,21 +520,17 @@ func (r *Renderer) Draw(screen *ebiten.Image) {
 		}
 	}
 
-	// Render each tile.
+	// Render each tile, recording its maximum pixel magnitude for exposure
+	// control.
 	for _, tile := range r.tiles {
 		r.renderGroup.Go(func() error {
-			tileSizeX := tile.LimX - tile.SrcX
-
 			r.LatestRenderState.RenderTile(tile, rx, ry)
 
-			// Copy the tile back to the main buf under a lock.
-			r.bufLock.Lock()
-			defer r.bufLock.Unlock()
-			for px := tile.SrcX; px < tile.LimX; px++ {
-				for py := tile.SrcY; py < tile.LimY; py++ {
-					tx := px - tile.SrcX
-					ty := py - tile.SrcY
-					r.RGBPowerBuf[py*rx+px] = tile.RGBPowerBuf[ty*tileSizeX+tx]
+			tile.MaxMag = 0
+			for _, p := range tile.RGBPowerBuf {
+				thisMag := fmath.Sqrt(p[0]*p[0] + p[1]*p[1] + p[2]*p[2])
+				if thisMag > tile.MaxMag {
+					tile.MaxMag = thisMag
 				}
 			}
 
@@ -549,47 +543,41 @@ func (r *Renderer) Draw(screen *ebiten.Image) {
 
 	// Simple automatic exposure control.  Divide all pixels by the maximum RGB
 	// power if it's greater than 1.0.
-	maxMag := float32(0)
-	for px := 0; px < rx; px++ {
-		for py := 0; py < ry; py++ {
-			thisMag := fmath.Sqrt(r.RGBPowerBuf[py*rx+px][0]*r.RGBPowerBuf[py*rx+px][0] + r.RGBPowerBuf[py*rx+px][1]*r.RGBPowerBuf[py*rx+px][1] + r.RGBPowerBuf[py*rx+px][2]*r.RGBPowerBuf[py*rx+px][2])
-			if thisMag > maxMag {
-				maxMag = thisMag
-			}
+	maxMag := float32(1)
+	for _, tile := range r.tiles {
+		if tile.MaxMag > maxMag {
+			maxMag = tile.MaxMag
 		}
-	}
-	if maxMag < float32(1) {
-		maxMag = 1
 	}
 	exposureDivisor := 1 / maxMag
 
-	for px := 0; px < rx; px++ {
-		for py := 0; py < ry; py++ {
-			rgbPow := r.RGBPowerBuf[py*rx+px]
-			rgbPow[0] *= exposureDivisor
-			rgbPow[1] *= exposureDivisor
-			rgbPow[2] *= exposureDivisor
-
-			if rgbPow[0] == 1.0 {
-				r.buf[py*rx*4+px*4+0] = 255
-			} else {
-				r.buf[py*rx*4+px*4+0] = byte(fmath.Floor(rgbPow[0] * 256.0))
+	// Convert each tile to bytes directly in the output buffer.  Tiles cover
+	// disjoint regions of buf, so no locking is needed.
+	for _, tile := range r.tiles {
+		r.renderGroup.Go(func() error {
+			tileSizeX := tile.LimX - tile.SrcX
+			for py := tile.SrcY; py < tile.LimY; py++ {
+				ty := py - tile.SrcY
+				for px := tile.SrcX; px < tile.LimX; px++ {
+					tx := px - tile.SrcX
+					rgbPow := tile.RGBPowerBuf[ty*tileSizeX+tx]
+					out := r.buf[py*rx*4+px*4 : py*rx*4+px*4+4 : py*rx*4+px*4+4]
+					for c := 0; c < 3; c++ {
+						v := rgbPow[c] * exposureDivisor
+						if v == 1.0 {
+							out[c] = 255
+						} else {
+							out[c] = byte(fmath.Floor(v * 256.0))
+						}
+					}
+					out[3] = 255
+				}
 			}
-
-			if rgbPow[1] == 1.0 {
-				r.buf[py*rx*4+px*4+1] = 255
-			} else {
-				r.buf[py*rx*4+px*4+1] = byte(fmath.Floor(rgbPow[1] * 256.0))
-			}
-
-			if rgbPow[2] == 1.0 {
-				r.buf[py*rx*4+px*4+2] = 255
-			} else {
-				r.buf[py*rx*4+px*4+2] = byte(fmath.Floor(rgbPow[2] * 256.0))
-			}
-
-			r.buf[py*rx*4+px*4+3] = 255
-		}
+			return nil
+		})
+	}
+	if err := r.renderGroup.Wait(); err != nil {
+		log.Printf("Error while converting render output: %v", err)
 	}
 
 	r.renderImage.WritePixels(r.buf)
