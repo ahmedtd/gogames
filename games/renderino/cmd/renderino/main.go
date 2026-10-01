@@ -194,14 +194,17 @@ func NewRenderer(numRenderThreads int) (*Renderer, error) {
 
 	rng := rand.New(rand.NewPCG(1, 2))
 
-	// Initialize boids
+	// Initialize boids.  Each boid is one box in the scene, so this sets how
+	// hard the renderer is taxed; the O(n^2) boid update is serial, so keep it
+	// from dominating frame time.
+	const numBoids = 500
 	previousWorldState.BoidRNG = rand.New(rand.NewPCG(1, 2))
 	previousWorldState.NextBoidTargetSwitchTime = 10.0
 	previousWorldState.BoidTarget = fvec4.UniformSphereDistribution(rng, 100.0)
 	previousWorldState.BoidTarget[2] = 0
-	previousWorldState.BoidPositions = make([]fvec4.T, 1000)
-	previousWorldState.BoidVelocities = make([]fvec4.T, 1000)
-	for i := 0; i < 1000; i++ {
+	previousWorldState.BoidPositions = make([]fvec4.T, numBoids)
+	previousWorldState.BoidVelocities = make([]fvec4.T, numBoids)
+	for i := 0; i < numBoids; i++ {
 		previousWorldState.BoidPositions[i] = fvec4.UniformSphereDistribution(rng, 100.0)
 		previousWorldState.BoidPositions[i][2] = 0
 		previousWorldState.BoidVelocities[i] = fvec4.UniformSphereDistribution(rng, 1.0)
