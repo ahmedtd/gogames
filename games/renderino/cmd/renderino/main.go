@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/ahmedtd/gogames/embeddedassets/departuremonofont"
+	"github.com/ahmedtd/gogames/embeddedassets/kenneycastlekit"
 	"github.com/ahmedtd/gogames/games/renderino/internal/bvh"
 	"github.com/ahmedtd/gogames/lib/vmath/fmat44"
 	"github.com/ahmedtd/gogames/lib/vmath/fvec4"
@@ -168,8 +169,28 @@ func NewRenderer(numRenderThreads int) (*Renderer, error) {
 		return nil, fmt.Errorf("while loading Departure Mono font: %w", err)
 	}
 
+	ballistaMesh, err := kenneycastlekit.LoadSiegeBallista(true)
+	if err != nil {
+		return nil, fmt.Errorf("while loading ballista mesh: %w", err)
+	}
+	ballistaModel := NewMeshModel(ballistaMesh)
+
+	var ballistas []MeshInstance
+	for i := -1; i <= 1; i++ {
+		modelToWorld := fmat44.MulMM(
+			translateMat44(fvec4.T{0, 8 * float32(i), 0}),
+			fmat44.MulMM(
+				axisAngleMat44(fvec4.T{0, 0, 1}, float32(i)*fmath.Pi/4),
+				scaleMat44(4),
+			),
+		)
+		ballistas = append(ballistas, NewMeshInstance(ballistaModel, modelToWorld))
+	}
+
 	staticScene := &RenderState{
 		Camera: camera,
+
+		MeshInstances: ballistas,
 
 		AmbientLights: []AmbientLight{
 			{Power: RGBPower{0.2, 0.2, 0.2}},
@@ -431,6 +452,13 @@ func (r *Renderer) Update() error {
 		2.0,
 	}
 
+	// Spin the middle ballista in place.
+	spinningBallista := &r.LatestRenderState.MeshInstances[1]
+	spinningBallista.SetModelToWorld(fmat44.MulMM(
+		axisAngleMat44(fvec4.T{0, 0, 1}, float32(r.LatestWorldState.SimTime)),
+		scaleMat44(4),
+	))
+
 	r.LatestRenderState.AABBs = make([]AABB, len(r.LatestWorldState.BoidPositions))
 	for i := 0; i < len(r.LatestWorldState.BoidPositions); i++ {
 		r.LatestRenderState.AABBs[i].Lo[0] = r.LatestWorldState.BoidPositions[i][0] - 0.5
@@ -451,6 +479,15 @@ func (r *Renderer) Update() error {
 	for i := 0; i < len(r.LatestRenderState.AABBs); i++ {
 		node := r.LatestRenderState.Tree.GetFreeNode()
 		node.Reset(bvh.NodeTypeConcrete, r.LatestRenderState.AABBs[i].Lo, r.LatestRenderState.AABBs[i].Hi, i)
+		nodes = append(nodes, node)
+	}
+	// Mesh instances follow the AABBs in the tree's reference space.  Each
+	// instance has its own model-space tree over its triangles, so only its
+	// overall bounds go in the scene tree.
+	for i := range r.LatestRenderState.MeshInstances {
+		inst := &r.LatestRenderState.MeshInstances[i]
+		node := r.LatestRenderState.Tree.GetFreeNode()
+		node.Reset(bvh.NodeTypeConcrete, inst.Lo, inst.Hi, len(r.LatestRenderState.AABBs)+i)
 		nodes = append(nodes, node)
 	}
 	r.LatestRenderState.Tree.BuildFromElements(nodes)
@@ -633,6 +670,7 @@ type RenderState struct {
 
 	Spheres           []Sphere
 	AABBs             []AABB
+	MeshInstances     []MeshInstance
 	AmbientLights     []AmbientLight
 	DirectionalLights []DirectionalLight
 	PointLights       []PointLight
@@ -666,7 +704,12 @@ func (r *RenderState) RenderRay(ray Ray) RGBPower {
 	}
 
 	r.Tree.RayTest(ray.Point, ray.Slope, func(ref int) {
-		contact := r.AABBs[ref].RayContact(ray, 0.0, minContact.T)
+		var contact Contact
+		if ref < len(r.AABBs) {
+			contact = r.AABBs[ref].RayContact(ray, 0.0, minContact.T)
+		} else {
+			contact = r.MeshInstances[ref-len(r.AABBs)].RayContact(ray, 0.0, minContact.T)
+		}
 		if contact.Mode != ContactModeMiss {
 			if contact.T > 0.0 && contact.T < minContact.T {
 				minContact = contact
@@ -717,6 +760,10 @@ func (r *RenderState) matteShade(contact *Contact) RGBPower {
 			totalPower[2] += dot * falloff * l.Power[2]
 		}
 	}
+
+	totalPower[0] *= contact.Albedo[0]
+	totalPower[1] *= contact.Albedo[1]
+	totalPower[2] *= contact.Albedo[2]
 
 	return totalPower
 }
@@ -809,6 +856,9 @@ type Contact struct {
 	N fvec4.T
 
 	Mtl0, Mtl1, Mtl2 float32
+
+	// Fraction of incoming light reflected diffusely, per channel.
+	Albedo RGBPower
 }
 
 type Sphere struct {
@@ -846,6 +896,8 @@ func (s *Sphere) RayContact(ray Ray, queryLo, queryHi float32) Contact {
 			Mtl0: p[0],
 			Mtl1: p[1],
 			Mtl2: p[2],
+
+			Albedo: RGBPower{1, 1, 1},
 		}
 	} else {
 		p := ray.Eval(tMax)
@@ -861,6 +913,8 @@ func (s *Sphere) RayContact(ray Ray, queryLo, queryHi float32) Contact {
 			Mtl0: p[0],
 			Mtl1: p[1],
 			Mtl2: p[2],
+
+			Albedo: RGBPower{1, 1, 1},
 		}
 	}
 }
@@ -882,7 +936,9 @@ func (b *AABB) RayContact(ray Ray, queryLo, queryHi float32) Contact {
 	centerY := (b.Lo[1] + b.Hi[1]) / 2
 	centerZ := (b.Lo[2] + b.Hi[2]) / 2
 
-	minValidContact := Contact{}
+	minValidContact := Contact{
+		Albedo: RGBPower{1, 1, 1},
+	}
 
 	// Is our contact with the X-Low plane actually on the box?
 	pXLoX := b.Lo[0]
@@ -986,6 +1042,12 @@ func (b *AABB) RayContact(ray Ray, queryLo, queryHi float32) Contact {
 			}
 		}
 	}
+
+	if minValidContact.Mode == ContactModeMiss {
+		return minValidContact
+	}
+
+	minValidContact.P = ray.Eval(minValidContact.T)
 
 	minValidContact.Mtl0 = minValidContact.P[0] - centerX
 	minValidContact.Mtl1 = minValidContact.P[1] - centerY
