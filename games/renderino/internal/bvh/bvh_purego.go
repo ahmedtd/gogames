@@ -1,6 +1,6 @@
 //go:build !goexperiment.simd
 
-package main
+package bvh
 
 import (
 	"slices"
@@ -13,16 +13,16 @@ import (
 // (and thus traversal depth) is comparable between the two implementations.
 const bvhBranchingFactor = 4
 
-type BVHTree struct {
-	Root *BVHNode
+type Tree struct {
+	Root *Node
 
-	FreeList                  []*BVHNode
+	FreeList                  []*Node
 	AllocationsSinceLastClear int
 }
 
 // Clear moves all nodes from the tree to the free list.
-func (t *BVHTree) Clear() {
-	workStack := []*BVHNode{t.Root}
+func (t *Tree) Clear() {
+	workStack := []*Node{t.Root}
 	for len(workStack) != 0 {
 		cur := workStack[len(workStack)-1]
 		workStack = workStack[:len(workStack)-1]
@@ -34,7 +34,7 @@ func (t *BVHTree) Clear() {
 		for i := 0; i < cur.NumChildren; i++ {
 			workStack = append(workStack, cur.Children[i])
 		}
-		*cur = BVHNode{}
+		*cur = Node{}
 
 		t.FreeList = append(t.FreeList, cur)
 	}
@@ -44,10 +44,10 @@ func (t *BVHTree) Clear() {
 	t.Root = nil
 }
 
-func (t *BVHTree) GetFreeNode() *BVHNode {
+func (t *Tree) GetFreeNode() *Node {
 	if len(t.FreeList) == 0 {
 		t.AllocationsSinceLastClear++
-		return &BVHNode{}
+		return &Node{}
 	}
 
 	picked := t.FreeList[len(t.FreeList)-1]
@@ -56,43 +56,43 @@ func (t *BVHTree) GetFreeNode() *BVHNode {
 	return picked
 }
 
-// RayTest fires a ray through the BVH tree, invoking checkSceneElement with the
-// index of any scene element that could be hit.
-func (t *BVHTree) RayTest(ray Ray, checkRef func(ref int)) {
+// RayTest fires a ray (origin point, direction slope) through the BVH tree,
+// invoking checkRef with the index of any scene element that could be hit.
+func (t *Tree) RayTest(point, slope fvec4.T, checkRef func(ref int)) {
 	if t.Root == nil {
 		return
 	}
 
 	inverseSlope := fvec4.T{
-		1.0 / ray.Slope[0],
-		1.0 / ray.Slope[1],
-		1.0 / ray.Slope[2],
+		1.0 / slope[0],
+		1.0 / slope[1],
+		1.0 / slope[2],
 	}
 
 	// Every node pushed onto workStack below has already been bounds-tested
 	// as one of its parent's children. The root has no parent, so if it's a
 	// leaf, it must be tested directly here instead.
-	if t.Root.Type == BVHNodeTypeConcrete {
-		if bvhLeafRayTest(t.Root.Lo, t.Root.Hi, ray.Point, inverseSlope) {
+	if t.Root.Type == NodeTypeConcrete {
+		if bvhLeafRayTest(t.Root.Lo, t.Root.Hi, point, inverseSlope) {
 			checkRef(t.Root.Ref)
 		}
 		return
 	}
 
-	workStack := make([]*BVHNode, 0, 32)
+	workStack := make([]*Node, 0, 32)
 	workStack = append(workStack, t.Root)
 	for len(workStack) != 0 {
 		node := workStack[len(workStack)-1]
 		workStack = workStack[:len(workStack)-1]
 
 		switch node.Type {
-		case BVHNodeTypeConcrete:
+		case NodeTypeConcrete:
 			// This node was already bounds-tested as one of its parent's
 			// children, so it can be reported directly.
 			checkRef(node.Ref)
-		case BVHNodeTypeComposite:
+		case NodeTypeComposite:
 			for i := 0; i < node.NumChildren; i++ {
-				if bvhChildRayTest(node, i, ray.Point, inverseSlope) {
+				if bvhChildRayTest(node, i, point, inverseSlope) {
 					workStack = append(workStack, node.Children[i])
 				}
 			}
@@ -100,11 +100,11 @@ func (t *BVHTree) RayTest(ray Ray, checkRef func(ref int)) {
 	}
 }
 
-func (t *BVHTree) BuildFromElements(elements []*BVHNode) {
+func (t *Tree) BuildFromElements(elements []*Node) {
 	t.Root = t.assembleBVHTree(elements, 0)
 }
 
-func (t *BVHTree) assembleBVHTree(elements []*BVHNode, axis int) *BVHNode {
+func (t *Tree) assembleBVHTree(elements []*Node, axis int) *Node {
 	// Base case.
 	if len(elements) == 0 {
 		return nil
@@ -125,7 +125,7 @@ func (t *BVHTree) assembleBVHTree(elements []*BVHNode, axis int) *BVHNode {
 
 	// Recursive case.  Sort along the split axis and divide into
 	// bvhBranchingFactor roughly-equal groups, each becoming one child.
-	slices.SortFunc(elements, func(a, b *BVHNode) int {
+	slices.SortFunc(elements, func(a, b *Node) int {
 		diff := a.Lo[axis] - b.Lo[axis]
 		switch {
 		case diff < 0:
@@ -138,7 +138,7 @@ func (t *BVHTree) assembleBVHTree(elements []*BVHNode, axis int) *BVHNode {
 	})
 
 	n := len(elements)
-	children := make([]*BVHNode, 0, bvhBranchingFactor)
+	children := make([]*Node, 0, bvhBranchingFactor)
 	for i := 0; i < bvhBranchingFactor; i++ {
 		lo := i * n / bvhBranchingFactor
 		hi := (i + 1) * n / bvhBranchingFactor
@@ -156,9 +156,9 @@ func (t *BVHTree) assembleBVHTree(elements []*BVHNode, axis int) *BVHNode {
 // struct-of-arrays bounds used by bvhChildRayTest and the node's own overall
 // bounds (the union of its children's), the latter so that this node's
 // bounds are available if it's in turn absorbed as someone else's child.
-func (t *BVHTree) makeComposite(children []*BVHNode) *BVHNode {
+func (t *Tree) makeComposite(children []*Node) *Node {
 	node := t.GetFreeNode()
-	node.Type = BVHNodeTypeComposite
+	node.Type = NodeTypeComposite
 	node.NumChildren = len(children)
 
 	lo := children[0].Lo
@@ -183,36 +183,36 @@ func (t *BVHTree) makeComposite(children []*BVHNode) *BVHNode {
 	return node
 }
 
-type BVHNodeType int
+type NodeType int
 
 const (
-	BVHNodeTypeConcrete BVHNodeType = iota
-	BVHNodeTypeComposite
+	NodeTypeConcrete NodeType = iota
+	NodeTypeComposite
 )
 
-type BVHNode struct {
-	Type BVHNodeType
+type Node struct {
+	Type NodeType
 
-	// Valid when Type == BVHNodeTypeConcrete: this node's own bounds and
+	// Valid when Type == NodeTypeConcrete: this node's own bounds and
 	// scene-element reference.  Also valid (as the union of children's
-	// bounds) when Type == BVHNodeTypeComposite, since this node might in
+	// bounds) when Type == NodeTypeComposite, since this node might in
 	// turn be some other node's child.
 	Lo  fvec4.T
 	Hi  fvec4.T
 	Ref int
 
-	// Valid when Type == BVHNodeTypeComposite.  Children holds NumChildren
+	// Valid when Type == NodeTypeComposite.  Children holds NumChildren
 	// child pointers (trailing slots unused).  ChildLoX/Y/Z and
 	// ChildHiX/Y/Z store the same children's bounds in struct-of-arrays
 	// form -- one lane per child -- matching the amd64/SIMD build's layout,
 	// even though this build tests them with a plain scalar loop.
 	NumChildren                  int
-	Children                     [bvhBranchingFactor]*BVHNode
+	Children                     [bvhBranchingFactor]*Node
 	ChildLoX, ChildLoY, ChildLoZ [bvhBranchingFactor]float32
 	ChildHiX, ChildHiY, ChildHiZ [bvhBranchingFactor]float32
 }
 
-func (b *BVHNode) Reset(nodeType BVHNodeType, lo, hi fvec4.T, ref int) {
+func (b *Node) Reset(nodeType NodeType, lo, hi fvec4.T, ref int) {
 	b.Type = nodeType
 	b.Lo = lo
 	b.Hi = hi
@@ -244,7 +244,7 @@ func bvhLeafRayTest(lo, hi, point, inverseSlope fvec4.T) bool {
 
 // bvhChildRayTest tests a ray against child i of node, using the slab method
 // (https://tavianator.com/2011/ray_box.html).
-func bvhChildRayTest(node *BVHNode, i int, point, inverseSlope fvec4.T) bool {
+func bvhChildRayTest(node *Node, i int, point, inverseSlope fvec4.T) bool {
 	tx1 := (node.ChildLoX[i] - point[0]) * inverseSlope[0]
 	tx2 := (node.ChildHiX[i] - point[0]) * inverseSlope[0]
 

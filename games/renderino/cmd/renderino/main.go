@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/ahmedtd/gogames/embeddedassets/departuremonofont"
+	"github.com/ahmedtd/gogames/games/renderino/internal/bvh"
 	"github.com/ahmedtd/gogames/lib/vmath/fmat44"
 	"github.com/ahmedtd/gogames/lib/vmath/fvec4"
 
@@ -443,13 +444,13 @@ func (r *Renderer) Update() error {
 
 	// Build tree
 	if r.LatestRenderState.Tree == nil {
-		r.LatestRenderState.Tree = &BVHTree{}
+		r.LatestRenderState.Tree = &bvh.Tree{}
 	}
 	r.LatestRenderState.Tree.Clear()
-	nodes := []*BVHNode{}
+	nodes := []*bvh.Node{}
 	for i := 0; i < len(r.LatestRenderState.AABBs); i++ {
 		node := r.LatestRenderState.Tree.GetFreeNode()
-		node.Reset(BVHNodeTypeConcrete, r.LatestRenderState.AABBs[i].Lo, r.LatestRenderState.AABBs[i].Hi, i)
+		node.Reset(bvh.NodeTypeConcrete, r.LatestRenderState.AABBs[i].Lo, r.LatestRenderState.AABBs[i].Hi, i)
 		nodes = append(nodes, node)
 	}
 	r.LatestRenderState.Tree.BuildFromElements(nodes)
@@ -636,7 +637,7 @@ type RenderState struct {
 	DirectionalLights []DirectionalLight
 	PointLights       []PointLight
 
-	Tree *BVHTree
+	Tree *bvh.Tree
 }
 
 func (r *RenderState) RenderTile(tile *RenderTile, rx, ry int) {
@@ -664,7 +665,7 @@ func (r *RenderState) RenderRay(ray Ray) RGBPower {
 		T:    100000000.0,
 	}
 
-	r.Tree.RayTest(ray, func(ref int) {
+	r.Tree.RayTest(ray.Point, ray.Slope, func(ref int) {
 		contact := r.AABBs[ref].RayContact(ray, 0.0, minContact.T)
 		if contact.Mode != ContactModeMiss {
 			if contact.T > 0.0 && contact.T < minContact.T {

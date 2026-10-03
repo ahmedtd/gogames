@@ -1,4 +1,4 @@
-package main
+package bvh
 
 import (
 	"math/rand/v2"
@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-// TestBVHRayTestMatchesBruteForce checks that BVHTree.RayTest reports exactly
+// TestBVHRayTestMatchesBruteForce checks that Tree.RayTest reports exactly
 // the same set of candidate boxes as a brute-force linear scan over every
 // leaf actually present in the tree, across many randomly-generated scenes
 // and rays.  This is the main correctness guard for the wide (4-ary) BVH
@@ -24,7 +24,7 @@ func TestBVHRayTestMatchesBruteForce(t *testing.T) {
 			ray := randomRay(rng, sceneExtent)
 
 			var gotHits []int
-			tree.RayTest(ray, func(ref int) {
+			tree.RayTest(ray.Point, ray.Slope, func(ref int) {
 				gotHits = append(gotHits, ref)
 			})
 			slices.Sort(gotHits)
@@ -33,17 +33,17 @@ func TestBVHRayTestMatchesBruteForce(t *testing.T) {
 			slices.Sort(wantHits)
 
 			if !slices.Equal(gotHits, wantHits) {
-				t.Fatalf("numBoxes=%d query=%d: BVHTree.RayTest = %v, want %v", numBoxes, q, gotHits, wantHits)
+				t.Fatalf("numBoxes=%d query=%d: Tree.RayTest = %v, want %v", numBoxes, q, gotHits, wantHits)
 			}
 		}
 	}
 }
 
 // bruteForceRayTest walks every leaf actually present in tree and
-// slab-tests it directly against ray, independent of however BVHTree.RayTest
+// slab-tests it directly against ray, independent of however Tree.RayTest
 // internally descends -- the correctness oracle for
 // TestBVHRayTestMatchesBruteForce.
-func bruteForceRayTest(tree *BVHTree, numBoxes int, ray Ray) []int {
+func bruteForceRayTest(tree *Tree, numBoxes int, ray testRay) []int {
 	inverseSlope := [3]float32{
 		1.0 / ray.Slope[0],
 		1.0 / ray.Slope[1],
@@ -51,12 +51,12 @@ func bruteForceRayTest(tree *BVHTree, numBoxes int, ray Ray) []int {
 	}
 
 	var hits []int
-	var walk func(node *BVHNode)
-	walk = func(node *BVHNode) {
+	var walk func(node *Node)
+	walk = func(node *Node) {
 		if node == nil {
 			return
 		}
-		if node.Type == BVHNodeTypeConcrete {
+		if node.Type == NodeTypeConcrete {
 			lo := node.Lo
 			hi := node.Hi
 

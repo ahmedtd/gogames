@@ -1,6 +1,6 @@
 //go:build goexperiment.simd && amd64
 
-package main
+package bvh
 
 import (
 	"math/bits"
@@ -16,16 +16,16 @@ import (
 // SIMD register width used by bvhRayTest4 (Float32x4 -- 4 lanes).
 const bvhBranchingFactor = 4
 
-type BVHTree struct {
-	Root *BVHNode
+type Tree struct {
+	Root *Node
 
-	FreeList                  []*BVHNode
+	FreeList                  []*Node
 	AllocationsSinceLastClear int
 }
 
 // Clear moves all nodes from the tree to the free list.
-func (t *BVHTree) Clear() {
-	workStack := []*BVHNode{t.Root}
+func (t *Tree) Clear() {
+	workStack := []*Node{t.Root}
 	for len(workStack) != 0 {
 		cur := workStack[len(workStack)-1]
 		workStack = workStack[:len(workStack)-1]
@@ -37,7 +37,7 @@ func (t *BVHTree) Clear() {
 		for i := 0; i < cur.NumChildren; i++ {
 			workStack = append(workStack, cur.Children[i])
 		}
-		*cur = BVHNode{}
+		*cur = Node{}
 
 		t.FreeList = append(t.FreeList, cur)
 	}
@@ -47,10 +47,10 @@ func (t *BVHTree) Clear() {
 	t.Root = nil
 }
 
-func (t *BVHTree) GetFreeNode() *BVHNode {
+func (t *Tree) GetFreeNode() *Node {
 	if len(t.FreeList) == 0 {
 		t.AllocationsSinceLastClear++
-		return &BVHNode{}
+		return &Node{}
 	}
 
 	picked := t.FreeList[len(t.FreeList)-1]
@@ -59,9 +59,9 @@ func (t *BVHTree) GetFreeNode() *BVHNode {
 	return picked
 }
 
-// RayTest fires a ray through the BVH tree, invoking checkSceneElement with the
-// index of any scene element that could be hit.
-func (t *BVHTree) RayTest(ray Ray, checkRef func(ref int)) {
+// RayTest fires a ray (origin point, direction slope) through the BVH tree,
+// invoking checkRef with the index of any scene element that could be hit.
+func (t *Tree) RayTest(point, slope fvec4.T, checkRef func(ref int)) {
 	if t.Root == nil {
 		return
 	}
@@ -69,33 +69,33 @@ func (t *BVHTree) RayTest(ray Ray, checkRef func(ref int)) {
 	// Every node pushed onto workStack below has already been bounds-tested
 	// as one lane of its parent's bvhRayTest4 call. The root has no parent,
 	// so if it's a leaf, it must be tested directly here instead.
-	if t.Root.Type == BVHNodeTypeConcrete {
-		if bvhLeafRayTest(t.Root.Lo, t.Root.Hi, ray.Point, ray.Slope) {
+	if t.Root.Type == NodeTypeConcrete {
+		if bvhLeafRayTest(t.Root.Lo, t.Root.Hi, point, slope) {
 			checkRef(t.Root.Ref)
 		}
 		return
 	}
 
-	pointX := archsimd.BroadcastFloat32x4(ray.Point[0])
-	pointY := archsimd.BroadcastFloat32x4(ray.Point[1])
-	pointZ := archsimd.BroadcastFloat32x4(ray.Point[2])
+	pointX := archsimd.BroadcastFloat32x4(point[0])
+	pointY := archsimd.BroadcastFloat32x4(point[1])
+	pointZ := archsimd.BroadcastFloat32x4(point[2])
 
-	invSlopeX := archsimd.BroadcastFloat32x4(1.0 / ray.Slope[0])
-	invSlopeY := archsimd.BroadcastFloat32x4(1.0 / ray.Slope[1])
-	invSlopeZ := archsimd.BroadcastFloat32x4(1.0 / ray.Slope[2])
+	invSlopeX := archsimd.BroadcastFloat32x4(1.0 / slope[0])
+	invSlopeY := archsimd.BroadcastFloat32x4(1.0 / slope[1])
+	invSlopeZ := archsimd.BroadcastFloat32x4(1.0 / slope[2])
 
-	workStack := make([]*BVHNode, 0, 32)
+	workStack := make([]*Node, 0, 32)
 	workStack = append(workStack, t.Root)
 	for len(workStack) != 0 {
 		node := workStack[len(workStack)-1]
 		workStack = workStack[:len(workStack)-1]
 
 		switch node.Type {
-		case BVHNodeTypeConcrete:
+		case NodeTypeConcrete:
 			// This node was already bounds-tested as one lane of its
 			// parent's bvhRayTest4 call, so it can be reported directly.
 			checkRef(node.Ref)
-		case BVHNodeTypeComposite:
+		case NodeTypeComposite:
 			hitMask := bvhRayTest4(
 				&node.ChildLoX, &node.ChildLoY, &node.ChildLoZ,
 				&node.ChildHiX, &node.ChildHiY, &node.ChildHiZ,
@@ -113,11 +113,11 @@ func (t *BVHTree) RayTest(ray Ray, checkRef func(ref int)) {
 	}
 }
 
-func (t *BVHTree) BuildFromElements(elements []*BVHNode) {
+func (t *Tree) BuildFromElements(elements []*Node) {
 	t.Root = t.assembleBVHTree(elements, 0)
 }
 
-func (t *BVHTree) assembleBVHTree(elements []*BVHNode, axis uint8) *BVHNode {
+func (t *Tree) assembleBVHTree(elements []*Node, axis uint8) *Node {
 	// Base case.
 	if len(elements) == 0 {
 		return nil
@@ -138,7 +138,7 @@ func (t *BVHTree) assembleBVHTree(elements []*BVHNode, axis uint8) *BVHNode {
 
 	// Recursive case.  Sort along the split axis and divide into
 	// bvhBranchingFactor roughly-equal groups, each becoming one child.
-	slices.SortFunc(elements, func(a, b *BVHNode) int {
+	slices.SortFunc(elements, func(a, b *Node) int {
 		diff := a.Lo[axis] - b.Lo[axis]
 		switch {
 		case diff < 0:
@@ -151,7 +151,7 @@ func (t *BVHTree) assembleBVHTree(elements []*BVHNode, axis uint8) *BVHNode {
 	})
 
 	n := len(elements)
-	children := make([]*BVHNode, 0, bvhBranchingFactor)
+	children := make([]*Node, 0, bvhBranchingFactor)
 	for i := 0; i < bvhBranchingFactor; i++ {
 		lo := i * n / bvhBranchingFactor
 		hi := (i + 1) * n / bvhBranchingFactor
@@ -169,9 +169,9 @@ func (t *BVHTree) assembleBVHTree(elements []*BVHNode, axis uint8) *BVHNode {
 // struct-of-arrays bounds used by bvhRayTest4 and the node's own overall
 // bounds (the union of its children's), the latter so that this node's
 // bounds are available if it's in turn absorbed as someone else's child.
-func (t *BVHTree) makeComposite(children []*BVHNode) *BVHNode {
+func (t *Tree) makeComposite(children []*Node) *Node {
 	node := t.GetFreeNode()
-	node.Type = BVHNodeTypeComposite
+	node.Type = NodeTypeComposite
 	node.NumChildren = len(children)
 
 	lo := children[0].Lo
@@ -196,36 +196,36 @@ func (t *BVHTree) makeComposite(children []*BVHNode) *BVHNode {
 	return node
 }
 
-type BVHNodeType int
+type NodeType int
 
 const (
-	BVHNodeTypeConcrete BVHNodeType = iota
-	BVHNodeTypeComposite
+	NodeTypeConcrete NodeType = iota
+	NodeTypeComposite
 )
 
-type BVHNode struct {
-	Type BVHNodeType
+type Node struct {
+	Type NodeType
 
-	// Valid when Type == BVHNodeTypeConcrete: this node's own bounds and
+	// Valid when Type == NodeTypeConcrete: this node's own bounds and
 	// scene-element reference.  Also valid (as the union of children's
-	// bounds) when Type == BVHNodeTypeComposite, since this node might in
+	// bounds) when Type == NodeTypeComposite, since this node might in
 	// turn be some other node's child.
 	Lo  [4]float32
 	Hi  [4]float32
 	Ref int
 
-	// Valid when Type == BVHNodeTypeComposite.  Children holds NumChildren
+	// Valid when Type == NodeTypeComposite.  Children holds NumChildren
 	// child pointers (trailing slots unused).  ChildLoX/Y/Z and
 	// ChildHiX/Y/Z store the same children's bounds in struct-of-arrays
 	// form -- one lane per child -- so bvhRayTest4 can test all of a node's
 	// children with a handful of SIMD ops instead of one test per child.
 	NumChildren                  int
-	Children                     [bvhBranchingFactor]*BVHNode
+	Children                     [bvhBranchingFactor]*Node
 	ChildLoX, ChildLoY, ChildLoZ [bvhBranchingFactor]float32
 	ChildHiX, ChildHiY, ChildHiZ [bvhBranchingFactor]float32
 }
 
-func (b *BVHNode) Reset(nodeType BVHNodeType, lo, hi fvec4.T, ref int) {
+func (b *Node) Reset(nodeType NodeType, lo, hi fvec4.T, ref int) {
 	b.Type = nodeType
 	b.Lo = ([4]float32)(lo)
 	b.Hi = ([4]float32)(hi)
