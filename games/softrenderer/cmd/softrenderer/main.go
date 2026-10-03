@@ -128,7 +128,7 @@ var _ ebiten.Game = &Renderer{}
 
 func NewRenderer(numRenderThreads int) (*Renderer, error) {
 
-	ballistaMesh, err := kenneycastlekit.LoadSiegeBallista()
+	ballistaMesh, err := kenneycastlekit.LoadSiegeBallista(false)
 	if err != nil {
 		return nil, fmt.Errorf("while loading ballista mesh: %w", err)
 	}
