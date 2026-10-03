@@ -95,8 +95,9 @@ func BenchmarkBVHRayTest(b *testing.B) {
 			b.ReportAllocs()
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				tree.RayTest(rays[i].Point, rays[i].Slope, func(ref int) {
+				tree.RayTest(rays[i].Point, rays[i].Slope, negInf, posInf, func(ref int) float32 {
 					hits++
+					return posInf
 				})
 			}
 			b.StopTimer()

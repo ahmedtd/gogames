@@ -755,7 +755,7 @@ func (r *RenderState) RenderRay(ray Ray) RGBPower {
 		T:    100000000.0,
 	}
 
-	r.Tree.RayTest(ray.Point, ray.Slope, func(ref int) {
+	r.Tree.RayTest(ray.Point, ray.Slope, 0.0, minContact.T, func(ref int) float32 {
 		var contact Contact
 		if ref < len(r.AABBs) {
 			contact = r.AABBs[ref].RayContact(ray, 0.0, minContact.T)
@@ -767,6 +767,7 @@ func (r *RenderState) RenderRay(ray Ray) RGBPower {
 				minContact = contact
 			}
 		}
+		return minContact.T
 	})
 
 	if minContact.Mode == ContactModeMiss {

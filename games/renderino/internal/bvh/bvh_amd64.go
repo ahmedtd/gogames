@@ -59,9 +59,23 @@ func (t *Tree) GetFreeNode() *Node {
 	return picked
 }
 
+// rayTestEntry is a pending node on RayTest's work stack, along with the ray
+// parameter at which the ray enters its bounds.
+type rayTestEntry struct {
+	node   *Node
+	tEnter float32
+}
+
 // RayTest fires a ray (origin point, direction slope) through the BVH tree,
-// invoking checkRef with the index of any scene element that could be hit.
-func (t *Tree) RayTest(point, slope fvec4.T, checkRef func(ref int)) {
+// invoking checkRef with the index of any scene element whose bounds the ray
+// overlaps for some ray parameter t in [tLo, tHi].
+//
+// checkRef returns a new upper bound for t -- normally the t of the closest
+// hit found so far -- and the rest of the traversal skips any bounds the ray
+// only enters beyond it.  Returning +Inf (or anything >= the current bound)
+// leaves the bound unchanged.  Children are visited nearest-first, so a
+// closest-hit query tightens the bound as early as possible.
+func (t *Tree) RayTest(point, slope fvec4.T, tLo, tHi float32, checkRef func(ref int) float32) {
 	if t.Root == nil {
 		return
 	}
@@ -70,7 +84,7 @@ func (t *Tree) RayTest(point, slope fvec4.T, checkRef func(ref int)) {
 	// as one lane of its parent's bvhRayTest4 call. The root has no parent,
 	// so if it's a leaf, it must be tested directly here instead.
 	if t.Root.Type == NodeTypeConcrete {
-		if bvhLeafRayTest(t.Root.Lo, t.Root.Hi, point, slope) {
+		if bvhLeafRayTest(t.Root.Lo, t.Root.Hi, point, slope, tLo, tHi) {
 			checkRef(t.Root.Ref)
 		}
 		return
@@ -84,30 +98,57 @@ func (t *Tree) RayTest(point, slope fvec4.T, checkRef func(ref int)) {
 	invSlopeY := archsimd.BroadcastFloat32x4(1.0 / slope[1])
 	invSlopeZ := archsimd.BroadcastFloat32x4(1.0 / slope[2])
 
-	workStack := make([]*Node, 0, 32)
-	workStack = append(workStack, t.Root)
+	tLoV := archsimd.BroadcastFloat32x4(tLo)
+
+	workStack := make([]rayTestEntry, 0, 32)
+	workStack = append(workStack, rayTestEntry{node: t.Root, tEnter: tLo})
 	for len(workStack) != 0 {
-		node := workStack[len(workStack)-1]
+		entry := workStack[len(workStack)-1]
 		workStack = workStack[:len(workStack)-1]
 
+		// tHi may have shrunk since this entry was pushed, putting its
+		// bounds entirely beyond the closest hit found so far.
+		if entry.tEnter > tHi {
+			continue
+		}
+
+		node := entry.node
 		switch node.Type {
 		case NodeTypeConcrete:
 			// This node was already bounds-tested as one lane of its
 			// parent's bvhRayTest4 call, so it can be reported directly.
-			checkRef(node.Ref)
+			tHi = min(tHi, checkRef(node.Ref))
 		case NodeTypeComposite:
+			var tEnter [bvhBranchingFactor]float32
 			hitMask := bvhRayTest4(
 				&node.ChildLoX, &node.ChildLoY, &node.ChildLoZ,
 				&node.ChildHiX, &node.ChildHiY, &node.ChildHiZ,
 				pointX, pointY, pointZ,
 				invSlopeX, invSlopeY, invSlopeZ,
+				tLoV, archsimd.BroadcastFloat32x4(tHi),
+				&tEnter,
 			)
 			// Padding lanes beyond NumChildren hold garbage; mask them off.
 			hitMask &= uint8(1<<node.NumChildren) - 1
+
+			// Order the hit children far-to-near, so that pushing them in
+			// that order leaves the nearest on top of the stack.
+			var order [bvhBranchingFactor]int
+			n := 0
 			for hitMask != 0 {
 				i := bits.TrailingZeros8(hitMask)
 				hitMask &= hitMask - 1
-				workStack = append(workStack, node.Children[i])
+
+				j := n
+				for j > 0 && tEnter[order[j-1]] < tEnter[i] {
+					order[j] = order[j-1]
+					j--
+				}
+				order[j] = i
+				n++
+			}
+			for _, i := range order[:n] {
+				workStack = append(workStack, rayTestEntry{node: node.Children[i], tEnter: tEnter[i]})
 			}
 		}
 	}
@@ -235,14 +276,18 @@ func (b *Node) Reset(nodeType NodeType, lo, hi fvec4.T, ref int) {
 // bvhRayTest4 tests a ray (given as broadcast point/inverse-slope lanes) against
 // up to bvhBranchingFactor sibling AABBs at once, one per lane of the
 // childLo*/childHi* struct-of-arrays bounds, using the slab method
-// (https://tavianator.com/2011/ray_box.html).  It returns a bitmask with bit i
-// set if lane i was hit; lanes beyond the node's real child count hold
-// whatever was last stored there and must be masked off by the caller.
+// (https://tavianator.com/2011/ray_box.html), restricted to ray parameters in
+// [tLo, tHi].  It returns a bitmask with bit i set if lane i was hit, and
+// stores into tEnter the ray parameter at which each lane's box is entered
+// (clamped to tLo).  Lanes beyond the node's real child count hold whatever
+// was last stored there and must be masked off by the caller.
 func bvhRayTest4(
 	childLoX, childLoY, childLoZ *[bvhBranchingFactor]float32,
 	childHiX, childHiY, childHiZ *[bvhBranchingFactor]float32,
 	pointX, pointY, pointZ archsimd.Float32x4,
 	invSlopeX, invSlopeY, invSlopeZ archsimd.Float32x4,
+	tLo, tHi archsimd.Float32x4,
+	tEnter *[bvhBranchingFactor]float32,
 ) uint8 {
 	loX := archsimd.LoadFloat32x4(childLoX)
 	loY := archsimd.LoadFloat32x4(childLoY)
@@ -265,21 +310,26 @@ func bvhRayTest4(
 	tMin = tMin.Max(tzLo.Min(tzHi))
 	tMax = tMax.Min(tzLo.Max(tzHi))
 
+	tMin = tMin.Max(tLo)
+	tMax = tMax.Min(tHi)
+
+	tMin.Store(tEnter)
 	return tMin.LessEqual(tMax).ToBits()
 }
 
 // bvhLeafRayTest tests a ray against a single AABB directly, using the slab
-// method (https://tavianator.com/2011/ray_box.html).  It only exists to
-// handle a scene with exactly one element, where the tree's root is that
-// leaf itself and so was never tested as part of a parent's bvhRayTest4
-// call; this is not a hot path, so it's plain scalar code rather than SIMD.
-func bvhLeafRayTest(lo, hi fvec4.T, point, slope fvec4.T) bool {
+// method (https://tavianator.com/2011/ray_box.html), restricted to ray
+// parameters in [tLo, tHi].  It only exists to handle a scene with exactly
+// one element, where the tree's root is that leaf itself and so was never
+// tested as part of a parent's bvhRayTest4 call; this is not a hot path, so
+// it's plain scalar code rather than SIMD.
+func bvhLeafRayTest(lo, hi fvec4.T, point, slope fvec4.T, tLo, tHi float32) bool {
 	invSlope := fvec4.T{1.0 / slope[0], 1.0 / slope[1], 1.0 / slope[2], 0}
 
 	tx1 := (lo[0] - point[0]) * invSlope[0]
 	tx2 := (hi[0] - point[0]) * invSlope[0]
-	tMin := min(tx1, tx2)
-	tMax := max(tx1, tx2)
+	tMin := max(tLo, min(tx1, tx2))
+	tMax := min(tHi, max(tx1, tx2))
 
 	ty1 := (lo[1] - point[1]) * invSlope[1]
 	ty2 := (hi[1] - point[1]) * invSlope[1]

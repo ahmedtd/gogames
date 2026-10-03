@@ -196,11 +196,12 @@ func (m *MeshInstance) RayContact(ray Ray, queryLo, queryHi float32) Contact {
 	hitRef := -1
 	var hitT, hitB1, hitB2 float32
 	hitT = queryHi
-	m.Model.Tree.RayTest(modelPoint, modelSlope, func(ref int) {
+	m.Model.Tree.RayTest(modelPoint, modelSlope, queryLo, queryHi, func(ref int) float32 {
 		t, b1, b2, ok := tris[ref].RayIntersect(modelPoint, modelSlope, queryLo, hitT)
 		if ok {
 			hitRef, hitT, hitB1, hitB2 = ref, t, b1, b2
 		}
+		return hitT
 	})
 
 	if hitRef == -1 {

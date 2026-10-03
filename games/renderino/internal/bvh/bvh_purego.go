@@ -56,9 +56,23 @@ func (t *Tree) GetFreeNode() *Node {
 	return picked
 }
 
+// rayTestEntry is a pending node on RayTest's work stack, along with the ray
+// parameter at which the ray enters its bounds.
+type rayTestEntry struct {
+	node   *Node
+	tEnter float32
+}
+
 // RayTest fires a ray (origin point, direction slope) through the BVH tree,
-// invoking checkRef with the index of any scene element that could be hit.
-func (t *Tree) RayTest(point, slope fvec4.T, checkRef func(ref int)) {
+// invoking checkRef with the index of any scene element whose bounds the ray
+// overlaps for some ray parameter t in [tLo, tHi].
+//
+// checkRef returns a new upper bound for t -- normally the t of the closest
+// hit found so far -- and the rest of the traversal skips any bounds the ray
+// only enters beyond it.  Returning +Inf (or anything >= the current bound)
+// leaves the bound unchanged.  Children are visited nearest-first, so a
+// closest-hit query tightens the bound as early as possible.
+func (t *Tree) RayTest(point, slope fvec4.T, tLo, tHi float32, checkRef func(ref int) float32) {
 	if t.Root == nil {
 		return
 	}
@@ -73,28 +87,53 @@ func (t *Tree) RayTest(point, slope fvec4.T, checkRef func(ref int)) {
 	// as one of its parent's children. The root has no parent, so if it's a
 	// leaf, it must be tested directly here instead.
 	if t.Root.Type == NodeTypeConcrete {
-		if bvhLeafRayTest(t.Root.Lo, t.Root.Hi, point, inverseSlope) {
+		if bvhLeafRayTest(t.Root.Lo, t.Root.Hi, point, inverseSlope, tLo, tHi) {
 			checkRef(t.Root.Ref)
 		}
 		return
 	}
 
-	workStack := make([]*Node, 0, 32)
-	workStack = append(workStack, t.Root)
+	workStack := make([]rayTestEntry, 0, 32)
+	workStack = append(workStack, rayTestEntry{node: t.Root, tEnter: tLo})
 	for len(workStack) != 0 {
-		node := workStack[len(workStack)-1]
+		entry := workStack[len(workStack)-1]
 		workStack = workStack[:len(workStack)-1]
 
+		// tHi may have shrunk since this entry was pushed, putting its
+		// bounds entirely beyond the closest hit found so far.
+		if entry.tEnter > tHi {
+			continue
+		}
+
+		node := entry.node
 		switch node.Type {
 		case NodeTypeConcrete:
 			// This node was already bounds-tested as one of its parent's
 			// children, so it can be reported directly.
-			checkRef(node.Ref)
+			tHi = min(tHi, checkRef(node.Ref))
 		case NodeTypeComposite:
+			// Collect the hit children ordered far-to-near, so that pushing
+			// them in that order leaves the nearest on top of the stack.
+			var tEnter [bvhBranchingFactor]float32
+			var order [bvhBranchingFactor]int
+			n := 0
 			for i := 0; i < node.NumChildren; i++ {
-				if bvhChildRayTest(node, i, point, inverseSlope) {
-					workStack = append(workStack, node.Children[i])
+				var ok bool
+				tEnter[i], ok = bvhChildRayTest(node, i, point, inverseSlope, tLo, tHi)
+				if !ok {
+					continue
 				}
+
+				j := n
+				for j > 0 && tEnter[order[j-1]] < tEnter[i] {
+					order[j] = order[j-1]
+					j--
+				}
+				order[j] = i
+				n++
+			}
+			for _, i := range order[:n] {
+				workStack = append(workStack, rayTestEntry{node: node.Children[i], tEnter: tEnter[i]})
 			}
 		}
 	}
@@ -220,14 +259,15 @@ func (b *Node) Reset(nodeType NodeType, lo, hi fvec4.T, ref int) {
 }
 
 // bvhLeafRayTest tests a ray against a single AABB directly, using the slab
-// method (https://tavianator.com/2011/ray_box.html).  It only exists to
-// handle a scene with exactly one element, where the tree's root is that
-// leaf itself and so was never tested as part of a parent's child loop.
-func bvhLeafRayTest(lo, hi, point, inverseSlope fvec4.T) bool {
+// method (https://tavianator.com/2011/ray_box.html), restricted to ray
+// parameters in [tLo, tHi].  It only exists to handle a scene with exactly
+// one element, where the tree's root is that leaf itself and so was never
+// tested as part of a parent's child loop.
+func bvhLeafRayTest(lo, hi, point, inverseSlope fvec4.T, tLo, tHi float32) bool {
 	tx1 := (lo[0] - point[0]) * inverseSlope[0]
 	tx2 := (hi[0] - point[0]) * inverseSlope[0]
-	tMin := min(tx1, tx2)
-	tMax := max(tx1, tx2)
+	tMin := max(tLo, min(tx1, tx2))
+	tMax := min(tHi, max(tx1, tx2))
 
 	ty1 := (lo[1] - point[1]) * inverseSlope[1]
 	ty2 := (hi[1] - point[1]) * inverseSlope[1]
@@ -243,13 +283,15 @@ func bvhLeafRayTest(lo, hi, point, inverseSlope fvec4.T) bool {
 }
 
 // bvhChildRayTest tests a ray against child i of node, using the slab method
-// (https://tavianator.com/2011/ray_box.html).
-func bvhChildRayTest(node *Node, i int, point, inverseSlope fvec4.T) bool {
+// (https://tavianator.com/2011/ray_box.html), restricted to ray parameters in
+// [tLo, tHi].  On a hit, it also returns the ray parameter at which the
+// child's box is entered (clamped to tLo).
+func bvhChildRayTest(node *Node, i int, point, inverseSlope fvec4.T, tLo, tHi float32) (float32, bool) {
 	tx1 := (node.ChildLoX[i] - point[0]) * inverseSlope[0]
 	tx2 := (node.ChildHiX[i] - point[0]) * inverseSlope[0]
 
-	tMin := min(tx1, tx2)
-	tMax := max(tx1, tx2)
+	tMin := max(tLo, min(tx1, tx2))
+	tMax := min(tHi, max(tx1, tx2))
 
 	ty1 := (node.ChildLoY[i] - point[1]) * inverseSlope[1]
 	ty2 := (node.ChildHiY[i] - point[1]) * inverseSlope[1]
@@ -263,5 +305,5 @@ func bvhChildRayTest(node *Node, i int, point, inverseSlope fvec4.T) bool {
 	tMin = max(tMin, min(tz1, tz2))
 	tMax = min(tMax, max(tz1, tz2))
 
-	return tMin <= tMax
+	return tMin, tMin <= tMax
 }
