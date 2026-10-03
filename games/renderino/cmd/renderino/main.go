@@ -144,8 +144,9 @@ type RenderTile struct {
 	LimX, LimY  int
 	RGBPowerBuf []RGBPower
 
-	// Maximum pixel magnitude in RGBPowerBuf, from the most recent render.
-	MaxMag float32
+	// Histogram of pixel magnitudes in RGBPowerBuf, from the most recent
+	// render.  See exposureHistogramBin.
+	MagHistogram [exposureHistogramBins]int32
 
 	// Size (LimX-SrcX)*(LimY-SrcY)
 	IndexBuf   [][4]float32
@@ -204,7 +205,7 @@ func NewRenderer(numRenderThreads int) (*Renderer, error) {
 		PointLights: []PointLight{
 			{
 				Center: fvec4.T{5, 0, 0},
-				Power:  RGBPower{1.0, 0.0, 0.0},
+				Power:  RGBPower{10.0, 0.0, 0.0},
 			},
 		},
 	}
@@ -446,10 +447,11 @@ func (r *Renderer) Update() error {
 		r.LatestRenderState.Camera.ApertureToWorld))
 
 	// TODO: Derive LatestRenderState from LatestWorldState
+	// Circle above the ballistas, rather than through one of them.
 	r.LatestRenderState.PointLights[0].Center = fvec4.T{
-		float32(math.Cos(r.LatestWorldState.SimTime)),
-		float32(math.Sin(r.LatestWorldState.SimTime)),
-		2.0,
+		6 * float32(math.Cos(r.LatestWorldState.SimTime)),
+		6 * float32(math.Sin(r.LatestWorldState.SimTime)),
+		6.0,
 	}
 
 	// Spin the middle ballista in place.
@@ -561,18 +563,16 @@ func (r *Renderer) Draw(screen *ebiten.Image) {
 		}
 	}
 
-	// Render each tile, recording its maximum pixel magnitude for exposure
-	// control.
+	// Render each tile, recording a histogram of its pixel magnitudes for
+	// exposure control.
 	for _, tile := range r.tiles {
 		r.renderGroup.Go(func() error {
 			r.LatestRenderState.RenderTile(tile, rx, ry)
 
-			tile.MaxMag = 0
+			tile.MagHistogram = [exposureHistogramBins]int32{}
 			for _, p := range tile.RGBPowerBuf {
 				thisMag := fmath.Sqrt(p[0]*p[0] + p[1]*p[1] + p[2]*p[2])
-				if thisMag > tile.MaxMag {
-					tile.MaxMag = thisMag
-				}
+				tile.MagHistogram[exposureHistogramBin(thisMag)]++
 			}
 
 			return nil
@@ -582,15 +582,19 @@ func (r *Renderer) Draw(screen *ebiten.Image) {
 		log.Printf("Error while rendering: %v", err)
 	}
 
-	// Simple automatic exposure control.  Divide all pixels by the maximum RGB
-	// power if it's greater than 1.0.
-	maxMag := float32(1)
+	// Simple automatic exposure control.  Divide all pixels by the
+	// exposurePercentile pixel magnitude if it's greater than 1.0, clipping
+	// the few pixels brighter than it.  Using a percentile rather than the
+	// maximum keeps small hotspots (like a surface right next to a point
+	// light) from darkening the whole frame.
+	var histogram [exposureHistogramBins]int32
 	for _, tile := range r.tiles {
-		if tile.MaxMag > maxMag {
-			maxMag = tile.MaxMag
+		for i, n := range tile.MagHistogram {
+			histogram[i] += n
 		}
 	}
-	exposureDivisor := 1 / maxMag
+	exposureMag := max(1, exposureHistogramPercentile(&histogram, rx*ry, exposurePercentile))
+	exposureDivisor := 1 / exposureMag
 
 	// Convert each tile to bytes directly in the output buffer.  Tiles cover
 	// disjoint regions of buf, so no locking is needed.
@@ -605,7 +609,7 @@ func (r *Renderer) Draw(screen *ebiten.Image) {
 					out := r.buf[py*rx*4+px*4 : py*rx*4+px*4+4 : py*rx*4+px*4+4]
 					for c := 0; c < 3; c++ {
 						v := rgbPow[c] * exposureDivisor
-						if v == 1.0 {
+						if v >= 1.0 {
 							out[c] = 255
 						} else {
 							out[c] = byte(fmath.Floor(v * 256.0))
@@ -646,6 +650,54 @@ func (r *Renderer) Draw(screen *ebiten.Image) {
 
 func (r *Renderer) Layout(outsideWidth, outsideHeight int) (int, int) {
 	return outsideWidth, outsideHeight
+}
+
+// exposurePercentile is the fraction of pixels that automatic exposure keeps
+// unclipped.
+const exposurePercentile = 0.999
+
+// The exposure histogram's bins are formed from the top bits of a float32
+// magnitude: its exponent plus the leading exposureHistogramMantissaBits
+// mantissa bits.  That gives 2^exposureHistogramMantissaBits logarithmically
+// spaced bins per power of two, without computing a logarithm per pixel.
+// Magnitudes are binned over [2^exposureHistogramMinExp,
+// 2^exposureHistogramMaxExp), with anything outside clamped into the first or
+// last bin.
+const (
+	exposureHistogramMantissaBits = 4
+	exposureHistogramMinExp       = -8
+	exposureHistogramMaxExp       = 8
+	exposureHistogramBins         = (exposureHistogramMaxExp - exposureHistogramMinExp) << exposureHistogramMantissaBits
+
+	exposureHistogramShift    = 23 - exposureHistogramMantissaBits
+	exposureHistogramFirstKey = (127 + exposureHistogramMinExp) << exposureHistogramMantissaBits
+)
+
+// exposureHistogramBin returns the histogram bin for a non-negative
+// magnitude.
+func exposureHistogramBin(mag float32) int {
+	key := int(math.Float32bits(mag) >> exposureHistogramShift)
+	return min(max(key-exposureHistogramFirstKey, 0), exposureHistogramBins-1)
+}
+
+// exposureHistogramBinUpperEdge returns the smallest magnitude past the top
+// of a histogram bin.
+func exposureHistogramBinUpperEdge(bin int) float32 {
+	return math.Float32frombits(uint32(bin+exposureHistogramFirstKey+1) << exposureHistogramShift)
+}
+
+// exposureHistogramPercentile returns an upper bound on the magnitude at or
+// below which fraction of the numPixels pixels counted in histogram fall.
+func exposureHistogramPercentile(histogram *[exposureHistogramBins]int32, numPixels int, fraction float64) float32 {
+	target := int(math.Ceil(fraction * float64(numPixels)))
+	cumulative := 0
+	for i, n := range histogram {
+		cumulative += int(n)
+		if cumulative >= target {
+			return exposureHistogramBinUpperEdge(i)
+		}
+	}
+	return exposureHistogramBinUpperEdge(exposureHistogramBins - 1)
 }
 
 type WorldState struct {
