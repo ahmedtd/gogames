@@ -5,7 +5,6 @@ package bvh
 import (
 	"math/bits"
 	"simd/archsimd"
-	"slices"
 
 	"github.com/ahmedtd/gogames/lib/vmath/fvec4"
 )
@@ -21,6 +20,10 @@ type Tree struct {
 
 	FreeList                  []*Node
 	AllocationsSinceLastClear int
+
+	// Scratch space for splitSAH, kept to avoid reallocating it on every
+	// build.
+	sahScratch []float32
 }
 
 // Clear moves all nodes from the tree to the free list.
@@ -166,10 +169,10 @@ func (t *Tree) RayTest(point, slope fvec4.T, tLo, tHi float32, stats *Stats, che
 }
 
 func (t *Tree) BuildFromElements(elements []*Node) {
-	t.Root = t.assembleBVHTree(elements, 0)
+	t.Root = t.assembleBVHTree(elements)
 }
 
-func (t *Tree) assembleBVHTree(elements []*Node, axis uint8) *Node {
+func (t *Tree) assembleBVHTree(elements []*Node) *Node {
 	// Base case.
 	if len(elements) == 0 {
 		return nil
@@ -188,29 +191,28 @@ func (t *Tree) assembleBVHTree(elements []*Node, axis uint8) *Node {
 		return t.makeComposite(elements)
 	}
 
-	// Recursive case.  Sort along the split axis and divide into
-	// bvhBranchingFactor roughly-equal groups, each becoming one child.
-	slices.SortFunc(elements, func(a, b *Node) int {
-		diff := a.Lo[axis] - b.Lo[axis]
-		switch {
-		case diff < 0:
-			return -1
-		case diff == 0:
-			return 0
-		default:
-			return 1
-		}
-	})
-
-	n := len(elements)
-	children := make([]*Node, 0, bvhBranchingFactor)
-	for i := 0; i < bvhBranchingFactor; i++ {
-		lo := i * n / bvhBranchingFactor
-		hi := (i + 1) * n / bvhBranchingFactor
-		if lo == hi {
+	// Recursive case.  Split the elements in two using the surface area
+	// heuristic, then split each half in two again the same way, and make
+	// each of the resulting (up to) four groups one child.  This assumes
+	// bvhBranchingFactor == 4.
+	mid := t.splitSAH(elements)
+	var groups [bvhBranchingFactor][]*Node
+	numGroups := 0
+	for _, half := range [2][]*Node{elements[:mid], elements[mid:]} {
+		if len(half) == 1 {
+			groups[numGroups] = half
+			numGroups++
 			continue
 		}
-		children = append(children, t.assembleBVHTree(elements[lo:hi], (axis+1)%3))
+		quarterMid := t.splitSAH(half)
+		groups[numGroups] = half[:quarterMid]
+		groups[numGroups+1] = half[quarterMid:]
+		numGroups += 2
+	}
+
+	children := make([]*Node, numGroups)
+	for i, group := range groups[:numGroups] {
+		children[i] = t.assembleBVHTree(group)
 	}
 
 	return t.makeComposite(children)
