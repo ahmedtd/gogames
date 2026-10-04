@@ -23,6 +23,7 @@ import (
 
 	"github.com/ahmedtd/gogames/embeddedassets/departuremonofont"
 	"github.com/ahmedtd/gogames/embeddedassets/kenneycastlekit"
+	"github.com/ahmedtd/gogames/embeddedassets/kenneyprototypekit"
 	"github.com/ahmedtd/gogames/games/renderino/internal/bvh"
 	"github.com/ahmedtd/gogames/lib/vmath/fmat44"
 	"github.com/ahmedtd/gogames/lib/vmath/fvec4"
@@ -227,10 +228,38 @@ func newHeadlessRenderer(numRenderThreads int) (*Renderer, error) {
 		ballistas = append(ballistas, NewMeshInstance(ballistaModel, modelToWorld))
 	}
 
+	floorMesh, err := kenneyprototypekit.Load("floor-square", true)
+	if err != nil {
+		return nil, fmt.Errorf("while loading floor mesh: %w", err)
+	}
+	floorModel := NewMeshModel(floorMesh)
+
+	// Lay a 10x10 grid of floor tiles centered on the origin, with their tops
+	// at z = 0.  Tiles are scaled to match the ballistas.
+	const floorTileScale = 4
+	floorTileSize := floorTileScale * (floorModel.Hi[0] - floorModel.Lo[0])
+	floorTileZ := -floorTileScale * floorModel.Hi[2]
+	var floorTiles []MeshInstance
+	for i := 0; i < 10; i++ {
+		for j := 0; j < 10; j++ {
+			modelToWorld := fmat44.MulMM(
+				translateMat44(fvec4.T{
+					(float32(i) - 4.5) * floorTileSize,
+					(float32(j) - 4.5) * floorTileSize,
+					floorTileZ,
+				}),
+				scaleMat44(floorTileScale),
+			)
+			floorTiles = append(floorTiles, NewMeshInstance(floorModel, modelToWorld))
+		}
+	}
+
+	staticMeshInstances := append(ballistas, floorTiles...)
+
 	staticScene := &RenderState{
 		Camera: camera,
 
-		MeshInstances: ballistas,
+		MeshInstances: staticMeshInstances,
 
 		AmbientLights: []AmbientLight{
 			{Power: RGBPower{0.2, 0.2, 0.2}},
@@ -276,7 +305,7 @@ func newHeadlessRenderer(numRenderThreads int) (*Renderer, error) {
 		renderGroup: renderGroup,
 
 		boidModel:              ballistaModel,
-		numStaticMeshInstances: len(ballistas),
+		numStaticMeshInstances: len(staticMeshInstances),
 
 		TileSize: 64,
 
