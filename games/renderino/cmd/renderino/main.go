@@ -234,6 +234,12 @@ func newHeadlessRenderer(numRenderThreads int) (*Renderer, error) {
 	}
 	floorModel := NewMeshModel(floorMesh)
 
+	dogMesh, err := kenneyprototypekit.Load("animal-dog", true)
+	if err != nil {
+		return nil, fmt.Errorf("while loading animal-dog mesh: %w", err)
+	}
+	dogModel := NewMeshModel(dogMesh)
+
 	// Lay a 10x10 grid of floor tiles centered on the origin, with their tops
 	// at z = 0.  Tiles are scaled to match the ballistas.
 	const floorTileScale = 4
@@ -304,7 +310,7 @@ func newHeadlessRenderer(numRenderThreads int) (*Renderer, error) {
 
 		renderGroup: renderGroup,
 
-		boidModel:              ballistaModel,
+		boidModel:              dogModel,
 		numStaticMeshInstances: len(staticMeshInstances),
 
 		TileSize: 64,
