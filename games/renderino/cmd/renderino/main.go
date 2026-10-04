@@ -841,6 +841,8 @@ type RayStats struct {
 
 	Rays    int64 // Primary rays traced.
 	RayHits int64 // Primary rays that hit something.
+
+	ShadowRays int64 // Shadow rays traced towards lights.
 }
 
 // Add adds o's counts into s.
@@ -849,6 +851,7 @@ func (s *RayStats) Add(o *RayStats) {
 	s.TriTests += o.TriTests
 	s.Rays += o.Rays
 	s.RayHits += o.RayHits
+	s.ShadowRays += o.ShadowRays
 }
 
 // RenderRay traces a primary ray, using stack for BVH traversals and adding
@@ -879,12 +882,40 @@ func (r *RenderState) RenderRay(ray Ray, stack *bvh.Stack, stats *RayStats) RGBP
 	}
 
 	stats.RayHits++
-	power := r.matteShade(&minContact)
+	power := r.matteShade(&minContact, stack, stats)
 	return power
 }
 
-func (r *RenderState) matteShade(contact *Contact) RGBPower {
+// shadowBias is how far shadow rays start off a surface, along its normal,
+// so that they don't immediately hit the surface they're leaving due to
+// floating-point error.
+const shadowBias = 1e-3
+
+// Occluded reports whether anything in the scene blocks ray for t in
+// (tLo, tHi).  It stops at the first blocker found, rather than searching for
+// the nearest.
+func (r *RenderState) Occluded(ray Ray, tLo, tHi float32, stack *bvh.Stack, stats *RayStats) bool {
+	stats.ShadowRays++
+	occluded := false
+	r.Tree.RayTest(ray.Point, ray.Slope, tLo, tHi, stack, &stats.BVH, func(ref int) float32 {
+		if r.MeshInstances[ref].RayOccluded(ray, tLo, tHi, stack, stats) {
+			occluded = true
+			// A bound below tLo prunes the rest of the traversal.
+			return float32(math.Inf(-1))
+		}
+		return tHi
+	})
+	return occluded
+}
+
+// matteShade computes the diffuse light leaving contact.  Each directional and
+// point light only contributes if a shadow ray from the contact can reach it.
+func (r *RenderState) matteShade(contact *Contact, stack *bvh.Stack, stats *RayStats) RGBPower {
 	totalPower := RGBPower{}
+
+	// Shadow rays leave from just off the surface, on the side facing the
+	// viewer.  Lights are only considered when they're on that side too.
+	shadowOrigin := fvec4.AddVV(contact.P, fvec4.MulVS(contact.N, shadowBias))
 
 	for _, l := range r.AmbientLights {
 		totalPower[0] += l.Power[0]
@@ -894,7 +925,10 @@ func (r *RenderState) matteShade(contact *Contact) RGBPower {
 
 	for _, l := range r.DirectionalLights {
 		dot := fvec4.IProd(contact.N, l.DirectionToSource)
-		if dot > 0.0 {
+		// Directional lights are infinitely far away, so the shadow ray
+		// only reaches the light if it leaves the scene without a contact.
+		shadowRay := Ray{Point: shadowOrigin, Slope: l.DirectionToSource}
+		if dot > 0.0 && !r.Occluded(shadowRay, 0, float32(math.Inf(1)), stack, stats) {
 			totalPower[0] += dot * l.Power[0]
 			totalPower[1] += dot * l.Power[1]
 			totalPower[2] += dot * l.Power[2]
@@ -908,7 +942,10 @@ func (r *RenderState) matteShade(contact *Contact) RGBPower {
 		falloff := 1.0 / distanceToLight / distanceToLight
 
 		dot := fvec4.IProd(contact.N, dirToLight)
-		if dot > 0.0 {
+		// With the unnormalized slope, the light is at t = 1, so anything
+		// with t < 1 is between the contact and the light.
+		shadowRay := Ray{Point: shadowOrigin, Slope: fvec4.SubVV(l.Center, shadowOrigin)}
+		if dot > 0.0 && !r.Occluded(shadowRay, 0, 1, stack, stats) {
 			totalPower[0] += dot * falloff * l.Power[0]
 			totalPower[1] += dot * falloff * l.Power[1]
 			totalPower[2] += dot * falloff * l.Power[2]

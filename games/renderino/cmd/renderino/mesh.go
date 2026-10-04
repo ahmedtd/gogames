@@ -1,6 +1,8 @@
 package main
 
 import (
+	"math"
+
 	"github.com/ahmedtd/gogames/games/renderino/internal/bvh"
 	"github.com/ahmedtd/gogames/lib/graphics/renderable3"
 	"github.com/ahmedtd/gogames/lib/vmath/fmat44"
@@ -259,6 +261,41 @@ func (m *MeshInstance) RayContact(ray Ray, queryLo, queryHi float32, stack *bvh.
 	contact.Albedo = sampleDiffuse(m.Model.Diffuse, uv)
 
 	return contact
+}
+
+// RayOccluded reports whether a world-space ray hits any triangle of the
+// instance with queryLo < t < queryHi.  Unlike RayContact, it stops at the
+// first hit found rather than searching for the nearest, so it's suited to
+// shadow rays.
+//
+// The BVH traversal's work stack is kept in stack, and the work done is added
+// into stats; either may be nil.
+func (m *MeshInstance) RayOccluded(ray Ray, queryLo, queryHi float32, stack *bvh.Stack, stats *RayStats) bool {
+	modelPoint := fmat44.MulMV(m.worldToModel, fvec4.T{ray.Point[0], ray.Point[1], ray.Point[2], 1})
+	modelPoint[3] = 0
+	modelSlope := fmat44.MulMV(m.worldToModel, fvec4.T{ray.Slope[0], ray.Slope[1], ray.Slope[2], 0})
+
+	tris := m.Model.Tris
+	hit := false
+	var bvhStats *bvh.Stats
+	if stats != nil {
+		bvhStats = &stats.BVH
+	}
+	var triTests int64
+	m.Model.Tree.RayTest(modelPoint, modelSlope, queryLo, queryHi, stack, bvhStats, func(ref int) float32 {
+		triTests++
+		if _, _, _, ok := tris[ref].RayIntersect(modelPoint, modelSlope, queryLo, queryHi); ok {
+			hit = true
+			// A bound below queryLo prunes the rest of the traversal.
+			return float32(math.Inf(-1))
+		}
+		return queryHi
+	})
+	if stats != nil {
+		stats.TriTests += triTests
+	}
+
+	return hit
 }
 
 // normalToWorld carries a model-space normal into world space using the

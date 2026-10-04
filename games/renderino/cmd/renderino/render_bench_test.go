@@ -86,6 +86,7 @@ func BenchmarkRenderFrame(b *testing.B) {
 			b.ReportMetric(float64(stats.BVH.InnerVisited)/rays, "inner/ray")
 			b.ReportMetric(float64(stats.TriTests)/rays, "tris/ray")
 			b.ReportMetric(float64(stats.RayHits)/rays, "hitfrac")
+			b.ReportMetric(float64(stats.ShadowRays)/rays, "shadows/ray")
 		})
 	}
 }
