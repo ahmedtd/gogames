@@ -23,7 +23,7 @@ type benchPose struct {
 var benchPoses = []benchPose{
 	// Up against the middle ballista, so that most rays hit its mesh.
 	{name: "closeup", center: fvec4.T{-3.2, 0, 2}, target: fvec4.T{0, 0, 1.2}},
-	// All three ballistas, with boid boxes scattered across the ground plane.
+	// All three ballistas, with boids scattered across the ground plane.
 	{name: "overview", center: fvec4.T{-16, 0, 9}, target: fvec4.T{0, 0, 1}},
 }
 

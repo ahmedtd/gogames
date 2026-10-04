@@ -129,6 +129,11 @@ type Renderer struct {
 
 	renderGroup *errgroup.Group
 
+	// Model drawn for each boid.  Boid instances follow the
+	// numStaticMeshInstances static ones in LatestRenderState.MeshInstances.
+	boidModel              *MeshModel
+	numStaticMeshInstances int
+
 	TileSize int
 	tiles    []*RenderTile
 
@@ -244,9 +249,9 @@ func newHeadlessRenderer(numRenderThreads int) (*Renderer, error) {
 
 	rng := rand.New(rand.NewPCG(1, 2))
 
-	// Initialize boids.  Each boid is one box in the scene, so this sets how
-	// hard the renderer is taxed; the O(n^2) boid update is serial, so keep it
-	// from dominating frame time.
+	// Initialize boids.  Each boid is one ballista in the scene, so this sets
+	// how hard the renderer is taxed; the O(n^2) boid update is serial, so keep
+	// it from dominating frame time.
 	const numBoids = 500
 	previousWorldState.BoidRNG = rand.New(rand.NewPCG(1, 2))
 	previousWorldState.NextBoidTargetSwitchTime = 10.0
@@ -266,7 +271,10 @@ func newHeadlessRenderer(numRenderThreads int) (*Renderer, error) {
 
 		renderGroup: renderGroup,
 
-		TileSize: 128,
+		boidModel:              ballistaModel,
+		numStaticMeshInstances: len(ballistas),
+
+		TileSize: 64,
 
 		PreviousWorldState: previousWorldState,
 		LatestWorldState:   &WorldState{},
@@ -475,7 +483,7 @@ func (r *Renderer) Update() error {
 }
 
 // updateRenderState derives the parts of LatestRenderState that follow the
-// simulation (lights, animated meshes, boid boxes, and the scene BVH) from
+// simulation (lights, animated meshes, boids, and the scene BVH) from
 // world state ws.  The camera is driven by input directly, in Update.
 func (r *Renderer) updateRenderState(ws *WorldState) {
 	// TODO: Derive LatestRenderState from LatestWorldState
@@ -493,35 +501,33 @@ func (r *Renderer) updateRenderState(ws *WorldState) {
 		scaleMat44(4),
 	))
 
-	r.LatestRenderState.AABBs = make([]AABB, len(ws.BoidPositions))
-	for i := 0; i < len(ws.BoidPositions); i++ {
-		r.LatestRenderState.AABBs[i].Lo[0] = ws.BoidPositions[i][0] - 0.5
-		r.LatestRenderState.AABBs[i].Lo[1] = ws.BoidPositions[i][1] - 0.5
-		r.LatestRenderState.AABBs[i].Lo[2] = ws.BoidPositions[i][2] - 0.5
-
-		r.LatestRenderState.AABBs[i].Hi[0] = ws.BoidPositions[i][0] + 0.5
-		r.LatestRenderState.AABBs[i].Hi[1] = ws.BoidPositions[i][1] + 0.5
-		r.LatestRenderState.AABBs[i].Hi[2] = ws.BoidPositions[i][2] + 0.5
+	// Each boid is a ballista at the boid's position, turned to face along its
+	// velocity.  The ballista model's long axis is model-space X.
+	numInstances := r.numStaticMeshInstances + len(ws.BoidPositions)
+	for len(r.LatestRenderState.MeshInstances) < numInstances {
+		r.LatestRenderState.MeshInstances = append(r.LatestRenderState.MeshInstances, MeshInstance{Model: r.boidModel})
+	}
+	r.LatestRenderState.MeshInstances = r.LatestRenderState.MeshInstances[:numInstances]
+	for i, pos := range ws.BoidPositions {
+		vel := ws.BoidVelocities[i]
+		heading := fmath.Atan2(vel[1], vel[0])
+		r.LatestRenderState.MeshInstances[r.numStaticMeshInstances+i].SetModelToWorld(fmat44.MulMM(
+			translateMat44(pos),
+			axisAngleMat44(fvec4.T{0, 0, 1}, heading),
+		))
 	}
 
-	// Build tree
+	// Build tree.  Each mesh instance has its own model-space tree over its
+	// triangles, so only its overall bounds go in the scene tree.
 	if r.LatestRenderState.Tree == nil {
 		r.LatestRenderState.Tree = &bvh.Tree{}
 	}
 	r.LatestRenderState.Tree.Clear()
-	nodes := []*bvh.Node{}
-	for i := 0; i < len(r.LatestRenderState.AABBs); i++ {
-		node := r.LatestRenderState.Tree.GetFreeNode()
-		node.Reset(bvh.NodeTypeConcrete, r.LatestRenderState.AABBs[i].Lo, r.LatestRenderState.AABBs[i].Hi, i)
-		nodes = append(nodes, node)
-	}
-	// Mesh instances follow the AABBs in the tree's reference space.  Each
-	// instance has its own model-space tree over its triangles, so only its
-	// overall bounds go in the scene tree.
+	nodes := make([]*bvh.Node, 0, len(r.LatestRenderState.MeshInstances))
 	for i := range r.LatestRenderState.MeshInstances {
 		inst := &r.LatestRenderState.MeshInstances[i]
 		node := r.LatestRenderState.Tree.GetFreeNode()
-		node.Reset(bvh.NodeTypeConcrete, inst.Lo, inst.Hi, len(r.LatestRenderState.AABBs)+i)
+		node.Reset(bvh.NodeTypeConcrete, inst.Lo, inst.Hi, i)
 		nodes = append(nodes, node)
 	}
 	r.LatestRenderState.Tree.BuildFromElements(nodes)
@@ -764,7 +770,6 @@ type RenderState struct {
 	MaxDepth int
 
 	Spheres           []Sphere
-	AABBs             []AABB
 	MeshInstances     []MeshInstance
 	AmbientLights     []AmbientLight
 	DirectionalLights []DirectionalLight
@@ -822,12 +827,7 @@ func (r *RenderState) RenderRay(ray Ray, stats *RayStats) RGBPower {
 	}
 
 	r.Tree.RayTest(ray.Point, ray.Slope, 0.0, minContact.T, &stats.BVH, func(ref int) float32 {
-		var contact Contact
-		if ref < len(r.AABBs) {
-			contact = r.AABBs[ref].RayContact(ray, 0.0, minContact.T)
-		} else {
-			contact = r.MeshInstances[ref-len(r.AABBs)].RayContact(ray, 0.0, minContact.T, stats)
-		}
+		contact := r.MeshInstances[ref].RayContact(ray, 0.0, minContact.T, stats)
 		if contact.Mode != ContactModeMiss {
 			if contact.T > 0.0 && contact.T < minContact.T {
 				minContact = contact
@@ -1038,147 +1038,6 @@ func (s *Sphere) RayContact(ray Ray, queryLo, queryHi float32) Contact {
 			Albedo: RGBPower{1, 1, 1},
 		}
 	}
-}
-
-type AABB struct {
-	Lo fvec4.T
-	Hi fvec4.T
-}
-
-func (b *AABB) RayContact(ray Ray, queryLo, queryHi float32) Contact {
-	tXLo := (b.Lo[0] - ray.Point[0]) / ray.Slope[0]
-	tXHi := (b.Hi[0] - ray.Point[0]) / ray.Slope[0]
-	tYLo := (b.Lo[1] - ray.Point[1]) / ray.Slope[1]
-	tYHi := (b.Hi[1] - ray.Point[1]) / ray.Slope[1]
-	tZLo := (b.Lo[2] - ray.Point[2]) / ray.Slope[2]
-	tZHi := (b.Hi[2] - ray.Point[2]) / ray.Slope[2]
-
-	centerX := (b.Lo[0] + b.Hi[0]) / 2
-	centerY := (b.Lo[1] + b.Hi[1]) / 2
-	centerZ := (b.Lo[2] + b.Hi[2]) / 2
-
-	minValidContact := Contact{
-		Albedo: RGBPower{1, 1, 1},
-	}
-
-	// Is our contact with the X-Low plane actually on the box?
-	pXLoX := b.Lo[0]
-	pXLoY := ray.Point[1] + ray.Slope[1]*tXLo
-	pXLoZ := ray.Point[2] + ray.Slope[2]*tXLo
-	if onBox(pXLoX, pXLoY, pXLoZ, b.Lo[0], b.Hi[0], b.Lo[1], b.Hi[1], b.Lo[2], b.Hi[2]) {
-		if (tXLo < minValidContact.T || minValidContact.Mode == ContactModeMiss) && queryLo <= tXLo && tXLo <= queryHi {
-			minValidContact.T = tXLo
-			if ray.Slope[0] >= 0 {
-				minValidContact.Mode = ContactModeEnter
-				minValidContact.N = fvec4.T{-1, 0, 0}
-
-			} else {
-				minValidContact.Mode = ContactModeExit
-				minValidContact.N = fvec4.T{1, 0, 0}
-			}
-		}
-	}
-
-	// Is our contact with the X-High plane actually on the box?
-	pXHiX := b.Hi[0]
-	pXHiY := ray.Point[1] + ray.Slope[1]*tXHi
-	pXHiZ := ray.Point[2] + ray.Slope[2]*tXHi
-	if onBox(pXHiX, pXHiY, pXHiZ, b.Lo[0], b.Hi[0], b.Lo[1], b.Hi[1], b.Lo[2], b.Hi[2]) {
-		if (tXHi < minValidContact.T || minValidContact.Mode == ContactModeMiss) && queryLo <= tXHi && tXHi <= queryHi {
-			minValidContact.T = tXHi
-			if ray.Slope[0] < 0 {
-				minValidContact.Mode = ContactModeEnter
-				minValidContact.N = fvec4.T{1, 0, 0}
-			} else {
-				minValidContact.Mode = ContactModeExit
-				minValidContact.N = fvec4.T{-1, 0, 0}
-			}
-		}
-	}
-
-	// Is our contact with the Y-Low plane actually on the box?
-	pYLoX := ray.Point[0] + ray.Slope[0]*tYLo
-	pYLoY := b.Lo[1]
-	pYLoZ := ray.Point[2] + ray.Slope[2]*tYLo
-	if onBox(pYLoX, pYLoY, pYLoZ, b.Lo[0], b.Hi[0], b.Lo[1], b.Hi[1], b.Lo[2], b.Hi[2]) {
-		if (tYLo < minValidContact.T || minValidContact.Mode == ContactModeMiss) && queryLo <= tYLo && tYLo <= queryHi {
-			minValidContact.T = tYLo
-			if ray.Slope[1] >= 0 {
-				minValidContact.Mode = ContactModeEnter
-				minValidContact.N = fvec4.T{0, -1, 0}
-			} else {
-				minValidContact.Mode = ContactModeExit
-				minValidContact.N = fvec4.T{0, 1, 0}
-			}
-		}
-	}
-
-	// Is our contact with the Y-High plane actually on the box?
-	pYHiX := ray.Point[0] + ray.Slope[0]*tYHi
-	pYHiY := b.Hi[1]
-	pYHiZ := ray.Point[2] + ray.Slope[2]*tYHi
-	if onBox(pYHiX, pYHiY, pYHiZ, b.Lo[0], b.Hi[0], b.Lo[1], b.Hi[1], b.Lo[2], b.Hi[2]) {
-		if (tYHi < minValidContact.T || minValidContact.Mode == ContactModeMiss) && queryLo <= tYHi && tYHi <= queryHi {
-			minValidContact.T = tYHi
-			if ray.Slope[1] < 0 {
-				minValidContact.Mode = ContactModeEnter
-				minValidContact.N = fvec4.T{0, 1, 0}
-			} else {
-				minValidContact.Mode = ContactModeExit
-				minValidContact.N = fvec4.T{0, -1, 0}
-			}
-		}
-	}
-
-	// Is our contact with the Z-Low plane actually on the box?
-	pZLoX := ray.Point[0] + ray.Slope[0]*tZLo
-	pZLoY := ray.Point[1] + ray.Slope[1]*tZLo
-	pZLoZ := b.Lo[2]
-	if onBox(pZLoX, pZLoY, pZLoZ, b.Lo[0], b.Hi[0], b.Lo[1], b.Hi[1], b.Lo[2], b.Hi[2]) {
-		if (tZLo < minValidContact.T || minValidContact.Mode == ContactModeMiss) && queryLo <= tZLo && tZLo <= queryHi {
-			minValidContact.T = tZLo
-			if ray.Slope[2] >= 0 {
-				minValidContact.Mode = ContactModeEnter
-				minValidContact.N = fvec4.T{0, 0, -1}
-			} else {
-				minValidContact.Mode = ContactModeExit
-				minValidContact.N = fvec4.T{0, 0, 1}
-			}
-		}
-	}
-
-	// Is our contact with the Z-High plane actually on the box?
-	pZHiX := ray.Point[0] + ray.Slope[0]*tZHi
-	pZHiY := ray.Point[1] + ray.Slope[1]*tZHi
-	pZHiZ := b.Hi[2]
-	if onBox(pZHiX, pZHiY, pZHiZ, b.Lo[0], b.Hi[0], b.Lo[1], b.Hi[1], b.Lo[2], b.Hi[2]) {
-		if (tZHi < minValidContact.T || minValidContact.Mode == ContactModeMiss) && queryLo <= tZHi && tZHi <= queryHi {
-			minValidContact.T = tZHi
-			if ray.Slope[2] < 0 {
-				minValidContact.Mode = ContactModeEnter
-				minValidContact.N = fvec4.T{0, 0, 1}
-			} else {
-				minValidContact.Mode = ContactModeExit
-				minValidContact.N = fvec4.T{0, 0, -1}
-			}
-		}
-	}
-
-	if minValidContact.Mode == ContactModeMiss {
-		return minValidContact
-	}
-
-	minValidContact.P = ray.Eval(minValidContact.T)
-
-	minValidContact.Mtl0 = minValidContact.P[0] - centerX
-	minValidContact.Mtl1 = minValidContact.P[1] - centerY
-	minValidContact.Mtl2 = minValidContact.P[2] - centerZ
-
-	return minValidContact
-}
-
-func onBox(px, py, pz, xlo, xhi, ylo, yhi, zlo, zhi float32) bool {
-	return xlo <= px && px <= xhi && ylo <= py && py <= yhi && zlo <= pz && pz <= zhi
 }
 
 type AmbientLight struct {
