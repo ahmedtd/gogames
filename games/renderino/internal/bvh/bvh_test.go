@@ -5,6 +5,8 @@ import (
 	"math/rand/v2"
 	"slices"
 	"testing"
+
+	"github.com/ahmedtd/gogames/lib/vmath/fvec4"
 )
 
 var (
@@ -30,7 +32,7 @@ func TestBVHRayTestMatchesBruteForce(t *testing.T) {
 			ray := randomRay(rng, sceneExtent)
 
 			var gotHits []int
-			tree.RayTest(ray.Point, ray.Slope, negInf, posInf, nil, func(ref int) float32 {
+			tree.RayTest(ray.Point, ray.Slope, negInf, posInf, nil, nil, func(ref int) float32 {
 				gotHits = append(gotHits, ref)
 				return posInf
 			})
@@ -119,7 +121,7 @@ func TestBVHRayTestClosestHit(t *testing.T) {
 			ray := randomRay(rng, sceneExtent)
 
 			gotT := posInf
-			tree.RayTest(ray.Point, ray.Slope, 0, posInf, nil, func(ref int) float32 {
+			tree.RayTest(ray.Point, ray.Slope, 0, posInf, nil, nil, func(ref int) float32 {
 				node := leaves[ref]
 				tMin, tMax := slabInterval(node.Lo, node.Hi, ray)
 				tMin = max(tMin, 0)
@@ -177,4 +179,66 @@ func slabInterval(lo, hi [4]float32, ray testRay) (tMin, tMax float32) {
 		tMax = min(tMax, max(t1, t2))
 	}
 	return tMin, tMax
+}
+
+// TestBVHRayTestNestedStack checks that RayTest calls nested inside another's
+// checkRef can share its Stack -- the way a scene-level traversal descends
+// into each mesh's own tree -- and still report exactly what they would with
+// separate stacks, leaving the stack empty afterwards.
+func TestBVHRayTestNestedStack(t *testing.T) {
+	const sceneExtent = 1000.0
+
+	// Unlike buildRandomBVH's small boxes, these are large enough that most
+	// rays hit several boxes in each tree, so traversals actually nest: every
+	// outer box spans the whole scene, and inner boxes a tenth of it.
+	rng := rand.New(rand.NewPCG(3, 0))
+	buildBVH := func(numBoxes int, halfSize float32) *Tree {
+		tree := &Tree{}
+		nodes := make([]*Node, numBoxes)
+		for i := range nodes {
+			var center fvec4.T
+			for k := range 3 {
+				center[k] = (rng.Float32()*2 - 1) * sceneExtent
+			}
+			nodes[i] = tree.GetFreeNode()
+			nodes[i].Reset(
+				NodeTypeConcrete,
+				fvec4.T{center[0] - halfSize, center[1] - halfSize, center[2] - halfSize, 0},
+				fvec4.T{center[0] + halfSize, center[1] + halfSize, center[2] + halfSize, 0},
+				i,
+			)
+		}
+		tree.BuildFromElements(nodes)
+		return tree
+	}
+	outer := buildBVH(17, 2*sceneExtent)
+	inner := buildBVH(977, sceneExtent/10)
+
+	// Each outer hit triggers an inner traversal; record the (outer, inner)
+	// pairs reported.
+	collect := func(ray testRay, stack *Stack) [][2]int {
+		var hits [][2]int
+		outer.RayTest(ray.Point, ray.Slope, negInf, posInf, stack, nil, func(outerRef int) float32 {
+			inner.RayTest(ray.Point, ray.Slope, negInf, posInf, stack, nil, func(innerRef int) float32 {
+				hits = append(hits, [2]int{outerRef, innerRef})
+				return posInf
+			})
+			return posInf
+		})
+		return hits
+	}
+
+	stack := &Stack{}
+	for q := 0; q < 200; q++ {
+		ray := randomRay(rng, sceneExtent)
+
+		got := collect(ray, stack)
+		want := collect(ray, nil)
+		if !slices.Equal(got, want) {
+			t.Fatalf("query=%d: hits with shared stack = %v, want %v", q, got, want)
+		}
+		if len(stack.entries) != 0 {
+			t.Fatalf("query=%d: stack left with %d entries, want 0", q, len(stack.entries))
+		}
+	}
 }

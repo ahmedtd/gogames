@@ -163,6 +163,10 @@ type RenderTile struct {
 	// render thread counts into its own tile, so no atomics are needed.
 	Stats RayStats
 
+	// Scratch space for BVH traversals while raytracing this tile.  As with
+	// Stats, only the thread rendering this tile uses it.
+	BVHStack bvh.Stack
+
 	// Size (LimX-SrcX)*(LimY-SrcY)
 	IndexBuf   [][4]float32
 	CameraRays [][4]float32
@@ -792,7 +796,7 @@ func (r *RenderState) RenderTile(tile *RenderTile, rx, ry int) {
 				Point: r.Camera.Center,
 				Slope: raySlope,
 			}
-			tile.RGBPowerBuf[ty*tileSizeX+tx] = r.RenderRay(ray, &tile.Stats)
+			tile.RGBPowerBuf[ty*tileSizeX+tx] = r.RenderRay(ray, &tile.BVHStack, &tile.Stats)
 		}
 	}
 }
@@ -818,15 +822,16 @@ func (s *RayStats) Add(o *RayStats) {
 	s.RayHits += o.RayHits
 }
 
-// RenderRay traces a primary ray, adding the work done into stats.
-func (r *RenderState) RenderRay(ray Ray, stats *RayStats) RGBPower {
+// RenderRay traces a primary ray, using stack for BVH traversals and adding
+// the work done into stats.
+func (r *RenderState) RenderRay(ray Ray, stack *bvh.Stack, stats *RayStats) RGBPower {
 	minContact := Contact{
 		Mode: ContactModeMiss,
 		T:    100000000.0,
 	}
 
-	r.Tree.RayTest(ray.Point, ray.Slope, 0.0, minContact.T, &stats.BVH, func(ref int) float32 {
-		contact := r.MeshInstances[ref].RayContact(ray, 0.0, minContact.T, stats)
+	r.Tree.RayTest(ray.Point, ray.Slope, 0.0, minContact.T, stack, &stats.BVH, func(ref int) float32 {
+		contact := r.MeshInstances[ref].RayContact(ray, 0.0, minContact.T, stack, stats)
 		if contact.Mode != ContactModeMiss {
 			if contact.T > 0.0 && contact.T < minContact.T {
 				minContact = contact

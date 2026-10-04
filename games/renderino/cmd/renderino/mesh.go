@@ -188,8 +188,9 @@ func (m *MeshInstance) SetModelToWorld(modelToWorld fmat44.T) {
 // ray parameter t is the same in both spaces and can be compared directly
 // against contacts with other scene objects.
 //
-// The work done is added into stats, which may be nil.
-func (m *MeshInstance) RayContact(ray Ray, queryLo, queryHi float32, stats *RayStats) Contact {
+// The BVH traversal's work stack is kept in stack, and the work done is added
+// into stats; either may be nil.
+func (m *MeshInstance) RayContact(ray Ray, queryLo, queryHi float32, stack *bvh.Stack, stats *RayStats) Contact {
 	modelPoint := fmat44.MulMV(m.worldToModel, fvec4.T{ray.Point[0], ray.Point[1], ray.Point[2], 1})
 	modelPoint[3] = 0
 	modelSlope := fmat44.MulMV(m.worldToModel, fvec4.T{ray.Slope[0], ray.Slope[1], ray.Slope[2], 0})
@@ -203,7 +204,7 @@ func (m *MeshInstance) RayContact(ray Ray, queryLo, queryHi float32, stats *RayS
 		bvhStats = &stats.BVH
 	}
 	var triTests int64
-	m.Model.Tree.RayTest(modelPoint, modelSlope, queryLo, queryHi, bvhStats, func(ref int) float32 {
+	m.Model.Tree.RayTest(modelPoint, modelSlope, queryLo, queryHi, stack, bvhStats, func(ref int) float32 {
 		triTests++
 		t, b1, b2, ok := tris[ref].RayIntersect(modelPoint, modelSlope, queryLo, hitT)
 		if ok {

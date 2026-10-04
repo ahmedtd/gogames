@@ -78,7 +78,7 @@ func TestMeshInstanceTransformedTriangle(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			c := inst.RayContact(tc.ray, 0, 1000, nil)
+			c := inst.RayContact(tc.ray, 0, 1000, nil, nil)
 			if c.Mode != tc.wantMode {
 				t.Fatalf("Mode = %v, want %v", c.Mode, tc.wantMode)
 			}
@@ -98,7 +98,7 @@ func TestMeshInstanceTransformedTriangle(t *testing.T) {
 	}
 
 	// Outside the triangle's hypotenuse.
-	if c := inst.RayContact(Ray{Point: fvec4.T{1.5, 1.5, 10}, Slope: fvec4.T{0, 0, -1}}, 0, 1000, nil); c.Mode != ContactModeMiss {
+	if c := inst.RayContact(Ray{Point: fvec4.T{1.5, 1.5, 10}, Slope: fvec4.T{0, 0, -1}}, 0, 1000, nil, nil); c.Mode != ContactModeMiss {
 		t.Errorf("ray outside triangle: Mode = %v, want miss", c.Mode)
 	}
 }
@@ -133,7 +133,7 @@ func TestMeshInstanceMatchesBruteForce(t *testing.T) {
 		}
 		ray := Ray{Point: origin, Slope: fvec4.SubVV(target, origin)}
 
-		got := inst.RayContact(ray, 0, 1000, nil)
+		got := inst.RayContact(ray, 0, 1000, nil, nil)
 
 		// Brute force in model space.
 		w2m := fmat44.Inverse(modelToWorld)

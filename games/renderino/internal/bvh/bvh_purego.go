@@ -58,13 +58,6 @@ func (t *Tree) GetFreeNode() *Node {
 	return picked
 }
 
-// rayTestEntry is a pending node on RayTest's work stack, along with the ray
-// parameter at which the ray enters its bounds.
-type rayTestEntry struct {
-	node   *Node
-	tEnter float32
-}
-
 // RayTest fires a ray (origin point, direction slope) through the BVH tree,
 // invoking checkRef with the index of any scene element whose bounds the ray
 // overlaps for some ray parameter t in [tLo, tHi].
@@ -75,8 +68,9 @@ type rayTestEntry struct {
 // leaves the bound unchanged.  Children are visited nearest-first, so a
 // closest-hit query tightens the bound as early as possible.
 //
-// The work done is added into stats, which may be nil.
-func (t *Tree) RayTest(point, slope fvec4.T, tLo, tHi float32, stats *Stats, checkRef func(ref int) float32) {
+// The traversal's work stack is kept in stack, which may be nil to use a
+// temporary one.  The work done is added into stats, which may be nil.
+func (t *Tree) RayTest(point, slope fvec4.T, tLo, tHi float32, stack *Stack, stats *Stats, checkRef func(ref int) float32) {
 	if t.Root == nil {
 		return
 	}
@@ -99,9 +93,15 @@ func (t *Tree) RayTest(point, slope fvec4.T, tLo, tHi float32, stats *Stats, che
 
 	var innerVisited, leafRefs int64
 
-	workStack := make([]rayTestEntry, 0, 32)
-	workStack = append(workStack, rayTestEntry{node: t.Root, tEnter: tLo})
-	for len(workStack) != 0 {
+	if stack == nil {
+		stack = &Stack{}
+	}
+
+	// This call's entries go on top of any left by an enclosing RayTest
+	// call, and are all popped by the time workStack is back down to base.
+	base := len(stack.entries)
+	workStack := append(stack.entries, rayTestEntry{node: t.Root, tEnter: tLo})
+	for len(workStack) != base {
 		entry := workStack[len(workStack)-1]
 		workStack = workStack[:len(workStack)-1]
 
@@ -117,7 +117,13 @@ func (t *Tree) RayTest(point, slope fvec4.T, tLo, tHi float32, stats *Stats, che
 			leafRefs++
 			// This node was already bounds-tested as one of its parent's
 			// children, so it can be reported directly.
+			//
+			// checkRef may make a nested RayTest call on the same stack,
+			// which pushes on top of ours (possibly growing it) and pops
+			// back down to our length before returning.
+			stack.entries = workStack
 			tHi = min(tHi, checkRef(node.Ref))
+			workStack = stack.entries
 		case NodeTypeComposite:
 			innerVisited++
 			// Collect the hit children ordered far-to-near, so that pushing
@@ -145,6 +151,8 @@ func (t *Tree) RayTest(point, slope fvec4.T, tLo, tHi float32, stats *Stats, che
 			}
 		}
 	}
+
+	stack.entries = workStack
 
 	if stats != nil {
 		stats.InnerVisited += innerVisited
