@@ -769,7 +769,6 @@ type RenderState struct {
 
 	MaxDepth int
 
-	Spheres           []Sphere
 	MeshInstances     []MeshInstance
 	AmbientLights     []AmbientLight
 	DirectionalLights []DirectionalLight
@@ -980,64 +979,6 @@ type Contact struct {
 
 	// Fraction of incoming light reflected diffusely, per channel.
 	Albedo RGBPower
-}
-
-type Sphere struct {
-	Center fvec4.T
-	Radius float32
-}
-
-func (s *Sphere) RayContact(ray Ray, queryLo, queryHi float32) Contact {
-	a := ray.Slope[0]*ray.Slope[0] + ray.Slope[1]*ray.Slope[1] + ray.Slope[2]*ray.Slope[2]
-	offset := fvec4.SubVV(ray.Point, s.Center)
-	b := 2 * (offset[0]*ray.Slope[0] + offset[1]*ray.Slope[1] + offset[2]*ray.Slope[2])
-	c := offset[0]*offset[0] + offset[1]*offset[1] + offset[2]*offset[2] - s.Radius*s.Radius
-
-	discriminant := b*b - 4*a*c
-	if discriminant < 0 {
-		return Contact{
-			Mode: ContactModeMiss,
-		}
-	}
-
-	tMin := -b - fmath.Sqrt(discriminant)/(2*a)
-	tMax := -b + fmath.Sqrt(discriminant)/(2*a)
-
-	if queryLo <= tMin && tMin < queryHi {
-		p := ray.Eval(tMin)
-		return Contact{
-			Mode: ContactModeEnter,
-
-			ExitRay: ray,
-
-			T: tMin,
-			P: p,
-			N: fvec4.Normalize(p),
-
-			Mtl0: p[0],
-			Mtl1: p[1],
-			Mtl2: p[2],
-
-			Albedo: RGBPower{1, 1, 1},
-		}
-	} else {
-		p := ray.Eval(tMax)
-		return Contact{
-			Mode: ContactModeExit,
-
-			ExitRay: ray,
-
-			T: tMin,
-			P: p,
-			N: fvec4.Normalize(p),
-
-			Mtl0: p[0],
-			Mtl1: p[1],
-			Mtl2: p[2],
-
-			Albedo: RGBPower{1, 1, 1},
-		}
-	}
 }
 
 type AmbientLight struct {
