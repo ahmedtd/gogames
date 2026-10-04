@@ -30,7 +30,7 @@ func TestBVHRayTestMatchesBruteForce(t *testing.T) {
 			ray := randomRay(rng, sceneExtent)
 
 			var gotHits []int
-			tree.RayTest(ray.Point, ray.Slope, negInf, posInf, func(ref int) float32 {
+			tree.RayTest(ray.Point, ray.Slope, negInf, posInf, nil, func(ref int) float32 {
 				gotHits = append(gotHits, ref)
 				return posInf
 			})
@@ -119,7 +119,7 @@ func TestBVHRayTestClosestHit(t *testing.T) {
 			ray := randomRay(rng, sceneExtent)
 
 			gotT := posInf
-			tree.RayTest(ray.Point, ray.Slope, 0, posInf, func(ref int) float32 {
+			tree.RayTest(ray.Point, ray.Slope, 0, posInf, nil, func(ref int) float32 {
 				node := leaves[ref]
 				tMin, tMax := slabInterval(node.Lo, node.Hi, ray)
 				tMin = max(tMin, 0)

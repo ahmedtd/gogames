@@ -132,6 +132,12 @@ type Renderer struct {
 	TileSize int
 	tiles    []*RenderTile
 
+	// Resolution that tiles and buf were allocated for.
+	frameRX, frameRY int
+
+	// Work done raytracing the most recent frame, summed over all tiles.
+	FrameStats RayStats
+
 	renderImage *ebiten.Image
 	buf         []byte
 
@@ -148,6 +154,10 @@ type RenderTile struct {
 	// render.  See exposureHistogramBin.
 	MagHistogram [exposureHistogramBins]int32
 
+	// Work done raytracing this tile, from the most recent render.  Each
+	// render thread counts into its own tile, so no atomics are needed.
+	Stats RayStats
+
 	// Size (LimX-SrcX)*(LimY-SrcY)
 	IndexBuf   [][4]float32
 	CameraRays [][4]float32
@@ -156,6 +166,31 @@ type RenderTile struct {
 var _ ebiten.Game = &Renderer{}
 
 func NewRenderer(numRenderThreads int) (*Renderer, error) {
+	r, err := newHeadlessRenderer(numRenderThreads)
+	if err != nil {
+		return nil, err
+	}
+
+	uiFaceSource, err := text.NewGoTextFaceSource(bytes.NewReader(departuremonofont.DepartureMonoOTF))
+	if err != nil {
+		return nil, fmt.Errorf("while loading Departure Mono font: %w", err)
+	}
+	r.uiFaceSource = uiFaceSource
+	r.uiNormalFace = &text.GoTextFace{
+		Source: uiFaceSource,
+		Size:   24,
+	}
+
+	cursorX, cursorY := ebiten.CursorPosition()
+	r.PreviousWorldState.CursorX, r.PreviousWorldState.CursorY = cursorX, cursorY
+
+	return r, nil
+}
+
+// newHeadlessRenderer builds a Renderer with its scene and initial world
+// state, but without anything that needs a running ebiten game (UI fonts,
+// cursor position), so that benchmarks can render frames off-screen.
+func newHeadlessRenderer(numRenderThreads int) (*Renderer, error) {
 	camera := &PinholeCamera{
 		Center:          fvec4.T{-10, 0, 10},
 		ApertureToWorld: fmat44.Identity(),
@@ -164,11 +199,6 @@ func NewRenderer(numRenderThreads int) (*Renderer, error) {
 
 	renderGroup := &errgroup.Group{}
 	renderGroup.SetLimit(numRenderThreads)
-
-	uiFaceSource, err := text.NewGoTextFaceSource(bytes.NewReader(departuremonofont.DepartureMonoOTF))
-	if err != nil {
-		return nil, fmt.Errorf("while loading Departure Mono font: %w", err)
-	}
 
 	ballistaMesh, err := kenneycastlekit.LoadSiegeBallista(true)
 	if err != nil {
@@ -212,9 +242,6 @@ func NewRenderer(numRenderThreads int) (*Renderer, error) {
 
 	previousWorldState := &WorldState{}
 
-	cursorX, cursorY := ebiten.CursorPosition()
-	previousWorldState.CursorX, previousWorldState.CursorY = cursorX, cursorY
-
 	rng := rand.New(rand.NewPCG(1, 2))
 
 	// Initialize boids.  Each boid is one box in the scene, so this sets how
@@ -240,12 +267,6 @@ func NewRenderer(numRenderThreads int) (*Renderer, error) {
 		renderGroup: renderGroup,
 
 		TileSize: 128,
-
-		uiFaceSource: uiFaceSource,
-		uiNormalFace: &text.GoTextFace{
-			Source: uiFaceSource,
-			Size:   24,
-		},
 
 		PreviousWorldState: previousWorldState,
 		LatestWorldState:   &WorldState{},
@@ -446,30 +467,41 @@ func (r *Renderer) Update() error {
 	r.LatestRenderState.Camera.ApertureToWorld = fmat44.Orthonormalize(fmat44.MulMM(fmat44.MulMM(rotateX, rotateY),
 		r.LatestRenderState.Camera.ApertureToWorld))
 
+	r.updateRenderState(r.LatestWorldState)
+
+	r.PreviousWorldState, r.LatestWorldState = r.LatestWorldState, r.PreviousWorldState
+
+	return nil
+}
+
+// updateRenderState derives the parts of LatestRenderState that follow the
+// simulation (lights, animated meshes, boid boxes, and the scene BVH) from
+// world state ws.  The camera is driven by input directly, in Update.
+func (r *Renderer) updateRenderState(ws *WorldState) {
 	// TODO: Derive LatestRenderState from LatestWorldState
 	// Circle above the ballistas, rather than through one of them.
 	r.LatestRenderState.PointLights[0].Center = fvec4.T{
-		6 * float32(math.Cos(r.LatestWorldState.SimTime)),
-		6 * float32(math.Sin(r.LatestWorldState.SimTime)),
+		6 * float32(math.Cos(ws.SimTime)),
+		6 * float32(math.Sin(ws.SimTime)),
 		6.0,
 	}
 
 	// Spin the middle ballista in place.
 	spinningBallista := &r.LatestRenderState.MeshInstances[1]
 	spinningBallista.SetModelToWorld(fmat44.MulMM(
-		axisAngleMat44(fvec4.T{0, 0, 1}, float32(r.LatestWorldState.SimTime)),
+		axisAngleMat44(fvec4.T{0, 0, 1}, float32(ws.SimTime)),
 		scaleMat44(4),
 	))
 
-	r.LatestRenderState.AABBs = make([]AABB, len(r.LatestWorldState.BoidPositions))
-	for i := 0; i < len(r.LatestWorldState.BoidPositions); i++ {
-		r.LatestRenderState.AABBs[i].Lo[0] = r.LatestWorldState.BoidPositions[i][0] - 0.5
-		r.LatestRenderState.AABBs[i].Lo[1] = r.LatestWorldState.BoidPositions[i][1] - 0.5
-		r.LatestRenderState.AABBs[i].Lo[2] = r.LatestWorldState.BoidPositions[i][2] - 0.5
+	r.LatestRenderState.AABBs = make([]AABB, len(ws.BoidPositions))
+	for i := 0; i < len(ws.BoidPositions); i++ {
+		r.LatestRenderState.AABBs[i].Lo[0] = ws.BoidPositions[i][0] - 0.5
+		r.LatestRenderState.AABBs[i].Lo[1] = ws.BoidPositions[i][1] - 0.5
+		r.LatestRenderState.AABBs[i].Lo[2] = ws.BoidPositions[i][2] - 0.5
 
-		r.LatestRenderState.AABBs[i].Hi[0] = r.LatestWorldState.BoidPositions[i][0] + 0.5
-		r.LatestRenderState.AABBs[i].Hi[1] = r.LatestWorldState.BoidPositions[i][1] + 0.5
-		r.LatestRenderState.AABBs[i].Hi[2] = r.LatestWorldState.BoidPositions[i][2] + 0.5
+		r.LatestRenderState.AABBs[i].Hi[0] = ws.BoidPositions[i][0] + 0.5
+		r.LatestRenderState.AABBs[i].Hi[1] = ws.BoidPositions[i][1] + 0.5
+		r.LatestRenderState.AABBs[i].Hi[2] = ws.BoidPositions[i][2] + 0.5
 	}
 
 	// Build tree
@@ -493,10 +525,6 @@ func (r *Renderer) Update() error {
 		nodes = append(nodes, node)
 	}
 	r.LatestRenderState.Tree.BuildFromElements(nodes)
-
-	r.PreviousWorldState, r.LatestWorldState = r.LatestWorldState, r.PreviousWorldState
-
-	return nil
 }
 
 func (r *Renderer) Draw(screen *ebiten.Image) {
@@ -510,6 +538,38 @@ func (r *Renderer) Draw(screen *ebiten.Image) {
 	rx := int(float64(screen.Bounds().Dx()) / r.curUpscaleFactor)
 	ry := int(float64(screen.Bounds().Dy()) / r.curUpscaleFactor)
 
+	r.renderFrame(rx, ry)
+
+	if r.renderImage == nil || r.renderImage.Bounds().Dx() != rx || r.renderImage.Bounds().Dy() != ry {
+		r.renderImage = ebiten.NewImage(rx, ry)
+	}
+	r.renderImage.WritePixels(r.buf)
+
+	drawRenderImageOptions := &ebiten.DrawImageOptions{
+		Filter: ebiten.FilterLinear,
+	}
+	drawRenderImageOptions.GeoM.Scale(r.curUpscaleFactor, r.curUpscaleFactor)
+	screen.DrawImage(r.renderImage, drawRenderImageOptions)
+
+	cursorX, cursorY := ebiten.CursorPosition()
+
+	// Draw info text
+	const x, y = 20, 20
+	infoText := fmt.Sprintf("fps=%f\ncurUpscaleFactor=%f\ncursor=%d,%d", 1.0/drawDelta.Seconds(), r.curUpscaleFactor, cursorX, cursorY)
+	w, h := text.Measure(infoText, r.uiNormalFace, r.uiNormalFace.Size*1.5)
+	vector.DrawFilledRect(screen, x, y, float32(w), float32(h), color.RGBA{0x80, 0x80, 0x80, 0xff}, false)
+	op := &text.DrawOptions{}
+	op.GeoM.Translate(x, y)
+	op.LineSpacing = r.uiNormalFace.Size * 1.5
+	text.Draw(screen, infoText, r.uiNormalFace, op)
+
+	r.lastDrawStart = drawStart
+}
+
+// renderFrame raytraces LatestRenderState at rx by ry pixels, leaving the
+// exposure-corrected RGBA result in r.buf.  It doesn't touch ebiten, so it
+// can run headless.
+func (r *Renderer) renderFrame(rx, ry int) {
 	// The camera's aperture needs to be adjusted to match the screen's ratio.
 	//
 	// Horizontal FOV is 80 degrees, with vertical FOV adjusted to match.
@@ -517,8 +577,8 @@ func (r *Renderer) Draw(screen *ebiten.Image) {
 	r.LatestRenderState.Camera.Aperture[1] = fmath.Sin(40.0 / 180.0 * 2.0 * fmath.Pi)
 	r.LatestRenderState.Camera.Aperture[2] = r.LatestRenderState.Camera.Aperture[1] / float32(rx) * float32(ry)
 
-	if r.renderImage == nil || r.renderImage.Bounds().Dx() != rx || r.renderImage.Bounds().Dy() != ry {
-		r.renderImage = ebiten.NewImage(rx, ry)
+	if r.tiles == nil || r.frameRX != rx || r.frameRY != ry {
+		r.frameRX, r.frameRY = rx, ry
 		r.buf = make([]byte, rx*ry*4)
 
 		r.tiles = []*RenderTile{}
@@ -582,6 +642,11 @@ func (r *Renderer) Draw(screen *ebiten.Image) {
 		log.Printf("Error while rendering: %v", err)
 	}
 
+	r.FrameStats = RayStats{}
+	for _, tile := range r.tiles {
+		r.FrameStats.Add(&tile.Stats)
+	}
+
 	// Simple automatic exposure control.  Divide all pixels by the
 	// exposurePercentile pixel magnitude if it's greater than 1.0, clipping
 	// the few pixels brighter than it.  Using a percentile rather than the
@@ -624,28 +689,6 @@ func (r *Renderer) Draw(screen *ebiten.Image) {
 	if err := r.renderGroup.Wait(); err != nil {
 		log.Printf("Error while converting render output: %v", err)
 	}
-
-	r.renderImage.WritePixels(r.buf)
-
-	drawRenderImageOptions := &ebiten.DrawImageOptions{
-		Filter: ebiten.FilterLinear,
-	}
-	drawRenderImageOptions.GeoM.Scale(r.curUpscaleFactor, r.curUpscaleFactor)
-	screen.DrawImage(r.renderImage, drawRenderImageOptions)
-
-	cursorX, cursorY := ebiten.CursorPosition()
-
-	// Draw info text
-	const x, y = 20, 20
-	infoText := fmt.Sprintf("fps=%f\ncurUpscaleFactor=%f\ncursor=%d,%d", 1.0/drawDelta.Seconds(), r.curUpscaleFactor, cursorX, cursorY)
-	w, h := text.Measure(infoText, r.uiNormalFace, r.uiNormalFace.Size*1.5)
-	vector.DrawFilledRect(screen, x, y, float32(w), float32(h), color.RGBA{0x80, 0x80, 0x80, 0xff}, false)
-	op := &text.DrawOptions{}
-	op.GeoM.Translate(x, y)
-	op.LineSpacing = r.uiNormalFace.Size * 1.5
-	text.Draw(screen, infoText, r.uiNormalFace, op)
-
-	r.lastDrawStart = drawStart
 }
 
 func (r *Renderer) Layout(outsideWidth, outsideHeight int) (int, int) {
@@ -732,6 +775,7 @@ type RenderState struct {
 
 func (r *RenderState) RenderTile(tile *RenderTile, rx, ry int) {
 	tileSizeX := tile.LimX - tile.SrcX
+	tile.Stats = RayStats{}
 
 	for py := tile.SrcY; py < tile.LimY; py++ {
 		ty := py - tile.SrcY
@@ -744,23 +788,45 @@ func (r *RenderState) RenderTile(tile *RenderTile, rx, ry int) {
 				Point: r.Camera.Center,
 				Slope: raySlope,
 			}
-			tile.RGBPowerBuf[ty*tileSizeX+tx] = r.RenderRay(ray)
+			tile.RGBPowerBuf[ty*tileSizeX+tx] = r.RenderRay(ray, &tile.Stats)
 		}
 	}
 }
 
-func (r *RenderState) RenderRay(ray Ray) RGBPower {
+// RayStats counts raytracing work, for measuring how much work the renderer
+// does per ray independently of how fast it does it.  It's plain counters, so
+// each render thread should count into its own RayStats and merge them
+// afterwards with Add.
+type RayStats struct {
+	BVH bvh.Stats // Summed over every tree: scene-level and per-mesh.
+
+	TriTests int64 // Ray-triangle intersection tests.
+
+	Rays    int64 // Primary rays traced.
+	RayHits int64 // Primary rays that hit something.
+}
+
+// Add adds o's counts into s.
+func (s *RayStats) Add(o *RayStats) {
+	s.BVH.Add(&o.BVH)
+	s.TriTests += o.TriTests
+	s.Rays += o.Rays
+	s.RayHits += o.RayHits
+}
+
+// RenderRay traces a primary ray, adding the work done into stats.
+func (r *RenderState) RenderRay(ray Ray, stats *RayStats) RGBPower {
 	minContact := Contact{
 		Mode: ContactModeMiss,
 		T:    100000000.0,
 	}
 
-	r.Tree.RayTest(ray.Point, ray.Slope, 0.0, minContact.T, func(ref int) float32 {
+	r.Tree.RayTest(ray.Point, ray.Slope, 0.0, minContact.T, &stats.BVH, func(ref int) float32 {
 		var contact Contact
 		if ref < len(r.AABBs) {
 			contact = r.AABBs[ref].RayContact(ray, 0.0, minContact.T)
 		} else {
-			contact = r.MeshInstances[ref-len(r.AABBs)].RayContact(ray, 0.0, minContact.T)
+			contact = r.MeshInstances[ref-len(r.AABBs)].RayContact(ray, 0.0, minContact.T, stats)
 		}
 		if contact.Mode != ContactModeMiss {
 			if contact.T > 0.0 && contact.T < minContact.T {
@@ -770,6 +836,7 @@ func (r *RenderState) RenderRay(ray Ray) RGBPower {
 		return minContact.T
 	})
 
+	stats.Rays++
 	if minContact.Mode == ContactModeMiss {
 		// Render a simple horizon at infinity for orientation
 		if ray.Slope[2] < 0.0 {
@@ -778,6 +845,7 @@ func (r *RenderState) RenderRay(ray Ray) RGBPower {
 		return RGBPower{0.0, 0.1, 0.5}
 	}
 
+	stats.RayHits++
 	power := r.matteShade(&minContact)
 	return power
 }

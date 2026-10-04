@@ -75,7 +75,9 @@ type rayTestEntry struct {
 // only enters beyond it.  Returning +Inf (or anything >= the current bound)
 // leaves the bound unchanged.  Children are visited nearest-first, so a
 // closest-hit query tightens the bound as early as possible.
-func (t *Tree) RayTest(point, slope fvec4.T, tLo, tHi float32, checkRef func(ref int) float32) {
+//
+// The work done is added into stats, which may be nil.
+func (t *Tree) RayTest(point, slope fvec4.T, tLo, tHi float32, stats *Stats, checkRef func(ref int) float32) {
 	if t.Root == nil {
 		return
 	}
@@ -100,6 +102,8 @@ func (t *Tree) RayTest(point, slope fvec4.T, tLo, tHi float32, checkRef func(ref
 
 	tLoV := archsimd.BroadcastFloat32x4(tLo)
 
+	var innerVisited, leafRefs int64
+
 	workStack := make([]rayTestEntry, 0, 32)
 	workStack = append(workStack, rayTestEntry{node: t.Root, tEnter: tLo})
 	for len(workStack) != 0 {
@@ -115,10 +119,12 @@ func (t *Tree) RayTest(point, slope fvec4.T, tLo, tHi float32, checkRef func(ref
 		node := entry.node
 		switch node.Type {
 		case NodeTypeConcrete:
+			leafRefs++
 			// This node was already bounds-tested as one lane of its
 			// parent's bvhRayTest4 call, so it can be reported directly.
 			tHi = min(tHi, checkRef(node.Ref))
 		case NodeTypeComposite:
+			innerVisited++
 			var tEnter [bvhBranchingFactor]float32
 			hitMask := bvhRayTest4(
 				&node.ChildLoX, &node.ChildLoY, &node.ChildLoZ,
@@ -151,6 +157,11 @@ func (t *Tree) RayTest(point, slope fvec4.T, tLo, tHi float32, checkRef func(ref
 				workStack = append(workStack, rayTestEntry{node: node.Children[i], tEnter: tEnter[i]})
 			}
 		}
+	}
+
+	if stats != nil {
+		stats.InnerVisited += innerVisited
+		stats.LeafRefs += leafRefs
 	}
 }
 

@@ -187,7 +187,9 @@ func (m *MeshInstance) SetModelToWorld(modelToWorld fmat44.T) {
 // The ray is carried into model space without renormalizing its slope, so the
 // ray parameter t is the same in both spaces and can be compared directly
 // against contacts with other scene objects.
-func (m *MeshInstance) RayContact(ray Ray, queryLo, queryHi float32) Contact {
+//
+// The work done is added into stats, which may be nil.
+func (m *MeshInstance) RayContact(ray Ray, queryLo, queryHi float32, stats *RayStats) Contact {
 	modelPoint := fmat44.MulMV(m.worldToModel, fvec4.T{ray.Point[0], ray.Point[1], ray.Point[2], 1})
 	modelPoint[3] = 0
 	modelSlope := fmat44.MulMV(m.worldToModel, fvec4.T{ray.Slope[0], ray.Slope[1], ray.Slope[2], 0})
@@ -196,13 +198,22 @@ func (m *MeshInstance) RayContact(ray Ray, queryLo, queryHi float32) Contact {
 	hitRef := -1
 	var hitT, hitB1, hitB2 float32
 	hitT = queryHi
-	m.Model.Tree.RayTest(modelPoint, modelSlope, queryLo, queryHi, func(ref int) float32 {
+	var bvhStats *bvh.Stats
+	if stats != nil {
+		bvhStats = &stats.BVH
+	}
+	var triTests int64
+	m.Model.Tree.RayTest(modelPoint, modelSlope, queryLo, queryHi, bvhStats, func(ref int) float32 {
+		triTests++
 		t, b1, b2, ok := tris[ref].RayIntersect(modelPoint, modelSlope, queryLo, hitT)
 		if ok {
 			hitRef, hitT, hitB1, hitB2 = ref, t, b1, b2
 		}
 		return hitT
 	})
+	if stats != nil {
+		stats.TriTests += triTests
+	}
 
 	if hitRef == -1 {
 		return Contact{Mode: ContactModeMiss}
