@@ -309,7 +309,7 @@ func newHeadlessRenderer(numRenderThreads int) (*Renderer, error) {
 	// Initialize boids.  Each boid is one mesh in the scene, so this sets
 	// how hard the renderer is taxed; the O(n^2) boid update is serial, so keep
 	// it from dominating frame time.
-	const numBoids = 500
+	const numBoids = 40
 	previousWorldState.BoidRNG = rand.New(rand.NewPCG(1, 2))
 	previousWorldState.NextBoidTargetSwitchTime = 10.0
 	previousWorldState.BoidTarget = fvec4.UniformSphereDistribution(rng, 100.0)
@@ -571,8 +571,9 @@ func (r *Renderer) updateRenderState(ws *WorldState) {
 		scaleMat44(4),
 	))
 
-	// Each boid is a ballista at the boid's position, turned to face along its
-	// velocity.  The ballista model's long axis is model-space X.
+	// Each boid is a dog at the boid's position, turned to face along its
+	// velocity.  The dog model faces model-space -X, so it's turned an extra
+	// half turn.
 	numInstances := r.numStaticMeshInstances + len(ws.BoidPositions)
 	for len(r.LatestRenderState.MeshInstances) < numInstances {
 		r.LatestRenderState.MeshInstances = append(r.LatestRenderState.MeshInstances, MeshInstance{Model: r.boidModel})
@@ -580,7 +581,7 @@ func (r *Renderer) updateRenderState(ws *WorldState) {
 	r.LatestRenderState.MeshInstances = r.LatestRenderState.MeshInstances[:numInstances]
 	for i, pos := range ws.BoidPositions {
 		vel := ws.BoidVelocities[i]
-		heading := fmath.Atan2(vel[1], vel[0])
+		heading := fmath.Atan2(vel[1], vel[0]) + fmath.Pi
 		r.LatestRenderState.MeshInstances[r.numStaticMeshInstances+i].SetModelToWorld(fmat44.MulMM(
 			translateMat44(pos),
 			axisAngleMat44(fvec4.T{0, 0, 1}, heading),
