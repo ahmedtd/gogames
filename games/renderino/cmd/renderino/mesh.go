@@ -19,6 +19,14 @@ type MeshModel struct {
 	Tris []MeshTri
 	Tree *bvh.Tree
 
+	// Model-space vertex positions (with w = 1), and the indices of each
+	// triangle's vertices in Tris order.  Rasterization works from these
+	// rather than from Tris: recomputing a vertex as V0+E1 doesn't always
+	// give back the exact original, which could open cracks between
+	// triangles that share it.
+	Vertices []fvec4.T
+	TriVerts [][3]int32
+
 	// Model-space bounds of all triangles.
 	Lo, Hi fvec4.T
 
@@ -39,9 +47,14 @@ type MeshTri struct {
 // NewMeshModel converts a renderable3 mesh into a MeshModel, building its BVH.
 func NewMeshModel(mesh *renderable3.T) *MeshModel {
 	m := &MeshModel{
-		Tris:    make([]MeshTri, len(mesh.Tris)),
-		Tree:    &bvh.Tree{},
-		Diffuse: mesh.Diffuse,
+		Tris:     make([]MeshTri, len(mesh.Tris)),
+		Tree:     &bvh.Tree{},
+		Vertices: make([]fvec4.T, len(mesh.Vertices)),
+		TriVerts: make([][3]int32, len(mesh.Tris)),
+		Diffuse:  mesh.Diffuse,
+	}
+	for i, v := range mesh.Vertices {
+		m.Vertices[i] = fvec4.T{v[0], v[1], v[2], 1}
 	}
 
 	nodes := make([]*bvh.Node, len(mesh.Tris))
@@ -50,6 +63,7 @@ func NewMeshModel(mesh *renderable3.T) *MeshModel {
 		for j := range 3 {
 			v := mesh.Vertices[tri.VertexIndices[j]]
 			vs[j] = fvec4.T{v[0], v[1], v[2], 0}
+			m.TriVerts[i][j] = int32(tri.VertexIndices[j])
 		}
 
 		mt := &m.Tris[i]
@@ -139,6 +153,38 @@ func (tri *MeshTri) RayIntersect(point, slope fvec4.T, queryLo, queryHi float32)
 	if t <= queryLo || t >= queryHi {
 		return 0, 0, 0, false
 	}
+
+	return t, b1, b2, true
+}
+
+// RayPlaneIntersect is RayIntersect without its range and inside tests: it
+// returns where a model-space ray meets the triangle's plane, as the ray
+// parameter t and the barycentric coordinates (b1, b2), which may lie outside
+// the triangle.  It fails only if the ray is parallel to the plane.
+func (tri *MeshTri) RayPlaneIntersect(point, slope fvec4.T) (t, b1, b2 float32, ok bool) {
+	e1x, e1y, e1z := tri.E1[0], tri.E1[1], tri.E1[2]
+	e2x, e2y, e2z := tri.E2[0], tri.E2[1], tri.E2[2]
+	dx, dy, dz := slope[0], slope[1], slope[2]
+
+	px := dy*e2z - dz*e2y
+	py := dz*e2x - dx*e2z
+	pz := dx*e2y - dy*e2x
+	det := e1x*px + e1y*py + e1z*pz
+	if det == 0 {
+		return 0, 0, 0, false
+	}
+	invDet := 1 / det
+
+	sx := point[0] - tri.V0[0]
+	sy := point[1] - tri.V0[1]
+	sz := point[2] - tri.V0[2]
+	b1 = (sx*px + sy*py + sz*pz) * invDet
+
+	qx := sy*e1z - sz*e1y
+	qy := sz*e1x - sx*e1z
+	qz := sx*e1y - sy*e1x
+	b2 = (dx*qx + dy*qy + dz*qz) * invDet
+	t = (e2x*qx + e2y*qy + e2z*qz) * invDet
 
 	return t, b1, b2, true
 }
@@ -236,7 +282,38 @@ func (m *MeshInstance) RayContact(ray Ray, queryLo, queryHi float32, stack *bvh.
 		return Contact{Mode: ContactModeMiss}
 	}
 
-	tri := &tris[hitRef]
+	return m.triContact(ray, hitRef, hitT, hitB1, hitB2)
+}
+
+// TriContact builds the contact of a world-space ray with triangle ref of
+// the instance, which is already known to be the nearest thing the ray hits
+// (by rasterization).  Rasterization and raytracing can disagree by a hair
+// about which samples near an edge a triangle covers, so the hit is clamped
+// into the triangle rather than rejected.  It fails if the ray is parallel to
+// the triangle, or meets its plane behind the ray origin.
+func (m *MeshInstance) TriContact(ray Ray, ref int) (Contact, bool) {
+	modelPoint := fmat44.MulMV(m.worldToModel, fvec4.T{ray.Point[0], ray.Point[1], ray.Point[2], 1})
+	modelPoint[3] = 0
+	modelSlope := fmat44.MulMV(m.worldToModel, fvec4.T{ray.Slope[0], ray.Slope[1], ray.Slope[2], 0})
+
+	t, b1, b2, ok := m.Model.Tris[ref].RayPlaneIntersect(modelPoint, modelSlope)
+	if !ok || t <= 0 {
+		return Contact{}, false
+	}
+	b1 = max(b1, 0)
+	b2 = max(b2, 0)
+	if sum := b1 + b2; sum > 1 {
+		b1 /= sum
+		b2 /= sum
+	}
+
+	return m.triContact(ray, ref, t, b1, b2), true
+}
+
+// triContact builds the contact of a world-space ray with triangle ref of the
+// instance, at ray parameter t and barycentric coordinates (b1, b2).
+func (m *MeshInstance) triContact(ray Ray, ref int, hitT, hitB1, hitB2 float32) Contact {
+	tri := &m.Model.Tris[ref]
 	b0 := 1 - hitB1 - hitB2
 
 	modelN := fvec4.T{

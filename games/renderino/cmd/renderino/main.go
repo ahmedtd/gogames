@@ -181,6 +181,10 @@ type RenderTile struct {
 	// are contiguous.
 	CameraRays    [][4]float32
 	Supersampling int
+
+	// The nearest triangle under each camera ray, when primary rays are
+	// replaced by rasterization.  Laid out like CameraRays.
+	Vis *VisBuffer
 }
 
 var _ ebiten.Game = &Renderer{}
@@ -274,6 +278,9 @@ func newHeadlessRenderer(numRenderThreads int) (*Renderer, error) {
 
 	staticScene := &RenderState{
 		Camera: camera,
+
+		RasterPrimary: true,
+		CullBackFaces: true,
 
 		MeshInstances: staticMeshInstances,
 
@@ -371,6 +378,9 @@ func (r *Renderer) Update() error {
 	}
 	if inpututil.IsKeyJustPressed(ebiten.Key9) {
 		r.curSupersampling++
+	}
+	if inpututil.IsKeyJustPressed(ebiten.KeyR) {
+		r.LatestRenderState.RasterPrimary = !r.LatestRenderState.RasterPrimary
 	}
 	if inpututil.IsKeyJustPressed(ebiten.KeyF3) {
 		go func() {
@@ -617,7 +627,7 @@ func (r *Renderer) Draw(screen *ebiten.Image) {
 
 	// Draw info text
 	const x, y = 20, 20
-	infoText := fmt.Sprintf("fps=%f\ncurUpscaleFactor=%f\ncurSupersampling=%d\ncursor=%d,%d", 1.0/drawDelta.Seconds(), r.curUpscaleFactor, r.curSupersampling, cursorX, cursorY)
+	infoText := fmt.Sprintf("fps=%f\ncurUpscaleFactor=%f\ncurSupersampling=%d\nrasterPrimary=%v\ncursor=%d,%d", 1.0/drawDelta.Seconds(), r.curUpscaleFactor, r.curSupersampling, r.LatestRenderState.RasterPrimary, cursorX, cursorY)
 	w, h := text.Measure(infoText, r.uiNormalFace, r.uiNormalFace.Size*1.5)
 	vector.DrawFilledRect(screen, x, y, float32(w), float32(h), color.RGBA{0x80, 0x80, 0x80, 0xff}, false)
 	op := &text.DrawOptions{}
@@ -632,12 +642,10 @@ func (r *Renderer) Draw(screen *ebiten.Image) {
 // exposure-corrected RGBA result in r.buf.  It doesn't touch ebiten, so it
 // can run headless.
 func (r *Renderer) renderFrame(rx, ry int) {
-	// The camera's aperture needs to be adjusted to match the screen's ratio.
-	//
-	// Horizontal FOV is 80 degrees, with vertical FOV adjusted to match.
-	r.LatestRenderState.Camera.Aperture[0] = 1
-	r.LatestRenderState.Camera.Aperture[1] = fmath.Sin(40.0 / 180.0 * 2.0 * fmath.Pi)
-	r.LatestRenderState.Camera.Aperture[2] = r.LatestRenderState.Camera.Aperture[1] / float32(rx) * float32(ry)
+	r.LatestRenderState.Camera.FitAperture(rx, ry)
+	if r.LatestRenderState.RasterPrimary {
+		r.LatestRenderState.prepareRaster(rx, ry)
+	}
 
 	samples := max(r.curSupersampling, 1)
 
@@ -665,6 +673,7 @@ func (r *Renderer) renderFrame(rx, ry int) {
 					RGBPowerBuf:   make([]RGBPower, tileSizeX*tileSizeY),
 					CameraRays:    make([][4]float32, tileSizeX*tileSizeY*samples),
 					Supersampling: samples,
+					Vis:           NewVisBuffer(tileSrcX, tileSrcY, tileSrcX+tileSizeX, tileSrcY+tileSizeY, samples),
 				}
 
 				// Build the pinhole camera rays for this tile, samples per
@@ -675,14 +684,7 @@ func (r *Renderer) renderFrame(rx, ry int) {
 						tx := px - tile.SrcX
 						for s := 0; s < samples; s++ {
 							ox, oy := supersampleOffset(s, samples)
-
-							apertureCoords := fvec4.T{
-								r.LatestRenderState.Camera.Aperture[0],
-								(1.0 - 2.0*(float32(px)+ox)/float32(rx)) * r.LatestRenderState.Camera.Aperture[1],
-								(1.0 - 2.0*(float32(py)+oy)/float32(ry)) * r.LatestRenderState.Camera.Aperture[2],
-							}
-
-							tile.CameraRays[(ty*tileSizeX+tx)*samples+s] = fvec4.Normalize(apertureCoords)
+							tile.CameraRays[(ty*tileSizeX+tx)*samples+s] = r.LatestRenderState.Camera.ApertureRay(float32(px)+ox, float32(py)+oy, rx, ry)
 						}
 					}
 				}
@@ -855,6 +857,58 @@ type RenderState struct {
 	PointLights       []PointLight
 
 	Tree *bvh.Tree
+
+	// If set, the first contact of each camera ray is found by rasterizing
+	// the scene rather than raytracing it.
+	RasterPrimary bool
+
+	// If set, rasterization skips triangles facing away from the camera.
+	CullBackFaces bool
+
+	// Rasterization setup for the current frame; see prepareRaster.
+	projection RasterProjection
+
+	// Per mesh instance, its model-to-clip transform.
+	instanceToClip []fmat44.T
+}
+
+// prepareRaster sets up rasterizing the scene to an rx by ry image, with the
+// camera's aperture already fitted to it.
+func (r *RenderState) prepareRaster(rx, ry int) {
+	r.projection = NewRasterProjection(r.Camera, rx, ry)
+	r.instanceToClip = r.instanceToClip[:0]
+	for i := range r.MeshInstances {
+		r.instanceToClip = append(r.instanceToClip, fmat44.MulMM(r.projection.WorldToClip, r.MeshInstances[i].ModelToWorld()))
+	}
+}
+
+// rasterizeTile fills tile.Vis with the nearest triangle under each of the
+// tile's camera rays.  Only the triangles in BVH nodes overlapping the tile's
+// frustum are rasterized.
+func (r *RenderState) rasterizeTile(tile *RenderTile) {
+	vb := tile.Vis
+	vb.Clear()
+	stack := &tile.BVHStack
+	bvhStats := &tile.Stats.BVH
+
+	planes := rasterTilePlanes(&r.projection.WorldToClip, vb.SrcX, vb.SrcY, vb.LimX, vb.LimY)
+	r.Tree.FrustumTest(planes[:], stack, bvhStats, func(instRef int) {
+		model := r.MeshInstances[instRef].Model
+		toClip := &r.instanceToClip[instRef]
+
+		// The same tile bounds, as planes in the instance's model space.
+		modelPlanes := rasterTilePlanes(toClip, vb.SrcX, vb.SrcY, vb.LimX, vb.LimY)
+		model.Tree.FrustumTest(modelPlanes[:], stack, bvhStats, func(triRef int) {
+			tv := &model.TriVerts[triRef]
+			clip := [3]fvec4.T{
+				fmat44.MulMV(*toClip, model.Vertices[tv[0]]),
+				fmat44.MulMV(*toClip, model.Vertices[tv[1]]),
+				fmat44.MulMV(*toClip, model.Vertices[tv[2]]),
+			}
+			vb.RasterizeTri(clip, r.CullBackFaces, VisHit{int32(instRef), int32(triRef)})
+		})
+	})
+	tile.Stats.Raster = vb.Stats
 }
 
 func (r *RenderState) RenderTile(tile *RenderTile, rx, ry int) {
@@ -863,6 +917,10 @@ func (r *RenderState) RenderTile(tile *RenderTile, rx, ry int) {
 	sampleWeight := 1 / float32(samples)
 	tile.Stats = RayStats{}
 
+	if r.RasterPrimary {
+		r.rasterizeTile(tile)
+	}
+
 	for py := tile.SrcY; py < tile.LimY; py++ {
 		ty := py - tile.SrcY
 		for px := tile.SrcX; px < tile.LimX; px++ {
@@ -870,12 +928,17 @@ func (r *RenderState) RenderTile(tile *RenderTile, rx, ry int) {
 			pixelIndex := ty*tileSizeX + tx
 
 			var sum RGBPower
-			for _, cameraRay := range tile.CameraRays[pixelIndex*samples : (pixelIndex+1)*samples] {
+			for s, cameraRay := range tile.CameraRays[pixelIndex*samples : (pixelIndex+1)*samples] {
 				ray := Ray{
 					Point: r.Camera.Center,
 					Slope: fmat44.MulMV(r.Camera.ApertureToWorld, cameraRay),
 				}
-				p := r.RenderRay(ray, &tile.BVHStack, &tile.Stats)
+				var p RGBPower
+				if r.RasterPrimary {
+					p = r.RenderRasterHit(ray, tile.Vis.Hits[pixelIndex*samples+s], &tile.BVHStack, &tile.Stats)
+				} else {
+					p = r.RenderRay(ray, &tile.BVHStack, &tile.Stats)
+				}
 				sum[0] += p[0]
 				sum[1] += p[1]
 				sum[2] += p[2]
@@ -898,6 +961,8 @@ type RayStats struct {
 	RayHits int64 // Primary rays that hit something.
 
 	ShadowRays int64 // Shadow rays traced towards lights.
+
+	Raster RasterStats // Rasterization in place of primary rays.
 }
 
 // Add adds o's counts into s.
@@ -907,6 +972,7 @@ func (s *RayStats) Add(o *RayStats) {
 	s.Rays += o.Rays
 	s.RayHits += o.RayHits
 	s.ShadowRays += o.ShadowRays
+	s.Raster.Add(&o.Raster)
 }
 
 // RenderRay traces a primary ray, using stack for BVH traversals and adding
@@ -929,16 +995,41 @@ func (r *RenderState) RenderRay(ray Ray, stack *bvh.Stack, stats *RayStats) RGBP
 
 	stats.Rays++
 	if minContact.Mode == ContactModeMiss {
-		// Render a simple horizon at infinity for orientation
-		if ray.Slope[2] < 0.0 {
-			return RGBPower{0.0, 0.0, 0.0}
-		}
-		return RGBPower{0.0, 0.1, 0.5}
+		return missPower(ray)
 	}
 
 	stats.RayHits++
 	power := r.matteShade(&minContact, stack, stats)
 	return power
+}
+
+// RenderRasterHit is RenderRay for a primary ray whose first contact was
+// found by rasterization, as hit.
+func (r *RenderState) RenderRasterHit(ray Ray, hit VisHit, stack *bvh.Stack, stats *RayStats) RGBPower {
+	if hit == visHitNone {
+		stats.Rays++
+		return missPower(ray)
+	}
+
+	contact, ok := r.MeshInstances[hit.Inst].TriContact(ray, int(hit.Tri))
+	if !ok {
+		// The ray grazes the triangle too closely to place the contact;
+		// fall back to raytracing it.
+		return r.RenderRay(ray, stack, stats)
+	}
+
+	stats.Rays++
+	stats.RayHits++
+	return r.matteShade(&contact, stack, stats)
+}
+
+// missPower is the light arriving along a ray that leaves the scene: a simple
+// horizon at infinity, for orientation.
+func missPower(ray Ray) RGBPower {
+	if ray.Slope[2] < 0.0 {
+		return RGBPower{0.0, 0.0, 0.0}
+	}
+	return RGBPower{0.0, 0.1, 0.5}
 }
 
 // shadowBias is how far shadow rays start off a surface, along its normal,
@@ -1047,6 +1138,27 @@ type PinholeCamera struct {
 	Center          fvec4.T
 	ApertureToWorld fmat44.T
 	Aperture        fvec4.T
+}
+
+// FitAperture sizes the camera's aperture to match the ratio of an rx by ry
+// image.
+func (c *PinholeCamera) FitAperture(rx, ry int) {
+	// Horizontal FOV is 80 degrees, with vertical FOV adjusted to match.
+	c.Aperture[0] = 1
+	c.Aperture[1] = fmath.Sin(40.0 / 180.0 * 2.0 * fmath.Pi)
+	c.Aperture[2] = c.Aperture[1] / float32(rx) * float32(ry)
+}
+
+// ApertureRay returns the unit direction, in aperture space, of the camera ray
+// through raster position (x, y) of an rx by ry image.  Raster positions are
+// in pixels, with x increasing rightwards and y downwards from the top-left
+// corner of the image; pixel (px, py) covers [px, px+1) x [py, py+1).
+func (c *PinholeCamera) ApertureRay(x, y float32, rx, ry int) fvec4.T {
+	return fvec4.Normalize(fvec4.T{
+		c.Aperture[0],
+		(1.0 - 2.0*x/float32(rx)) * c.Aperture[1],
+		(1.0 - 2.0*y/float32(ry)) * c.Aperture[2],
+	})
 }
 
 func (c *PinholeCamera) Eye() fvec4.T {
