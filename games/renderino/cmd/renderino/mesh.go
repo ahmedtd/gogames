@@ -100,28 +100,42 @@ func NewMeshModel(mesh *renderable3.T) *MeshModel {
 // Möller-Trumbore algorithm.  On a hit with queryLo < t < queryHi, it returns
 // the ray parameter t and the barycentric coordinates (b1, b2) of the hit
 // point with respect to vertices 1 and 2.
+//
+// It's written with scalar locals rather than fvec4.T temporaries: the
+// compiler spills fvec4.T values to the stack as separate 4-byte stores and
+// reloads them with one 16-byte load, which stalls on store forwarding.
 func (tri *MeshTri) RayIntersect(point, slope fvec4.T, queryLo, queryHi float32) (t, b1, b2 float32, ok bool) {
-	p := fvec4.CProd3(slope, tri.E2)
-	det := dot3(tri.E1, p)
+	e1x, e1y, e1z := tri.E1[0], tri.E1[1], tri.E1[2]
+	e2x, e2y, e2z := tri.E2[0], tri.E2[1], tri.E2[2]
+	dx, dy, dz := slope[0], slope[1], slope[2]
+
+	px := dy*e2z - dz*e2y
+	py := dz*e2x - dx*e2z
+	pz := dx*e2y - dy*e2x
+	det := e1x*px + e1y*py + e1z*pz
 	if det == 0 {
 		// Ray is parallel to the triangle.
 		return 0, 0, 0, false
 	}
 	invDet := 1 / det
 
-	s := fvec4.T{point[0] - tri.V0[0], point[1] - tri.V0[1], point[2] - tri.V0[2], 0}
-	b1 = dot3(s, p) * invDet
+	sx := point[0] - tri.V0[0]
+	sy := point[1] - tri.V0[1]
+	sz := point[2] - tri.V0[2]
+	b1 = (sx*px + sy*py + sz*pz) * invDet
 	if b1 < 0 || b1 > 1 {
 		return 0, 0, 0, false
 	}
 
-	q := fvec4.CProd3(s, tri.E1)
-	b2 = dot3(slope, q) * invDet
+	qx := sy*e1z - sz*e1y
+	qy := sz*e1x - sx*e1z
+	qz := sx*e1y - sy*e1x
+	b2 = (dx*qx + dy*qy + dz*qz) * invDet
 	if b2 < 0 || b1+b2 > 1 {
 		return 0, 0, 0, false
 	}
 
-	t = dot3(tri.E2, q) * invDet
+	t = (e2x*qx + e2y*qy + e2z*qz) * invDet
 	if t <= queryLo || t >= queryHi {
 		return 0, 0, 0, false
 	}
