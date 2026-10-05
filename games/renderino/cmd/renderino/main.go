@@ -246,12 +246,12 @@ func newHeadlessRenderer(numRenderThreads int) (*Renderer, error) {
 	floorTileSize := floorTileScale * (floorModel.Hi[0] - floorModel.Lo[0])
 	floorTileZ := -floorTileScale * floorModel.Hi[2]
 	var floorTiles []MeshInstance
-	for i := 0; i < 10; i++ {
-		for j := 0; j < 10; j++ {
+	for i := 0; i < 40; i++ {
+		for j := 0; j < 40; j++ {
 			modelToWorld := fmat44.MulMM(
 				translateMat44(fvec4.T{
-					(float32(i) - 4.5) * floorTileSize,
-					(float32(j) - 4.5) * floorTileSize,
+					(float32(i) - 19.5) * floorTileSize,
+					(float32(j) - 19.5) * floorTileSize,
 					floorTileZ,
 				}),
 				scaleMat44(floorTileScale),
@@ -288,7 +288,7 @@ func newHeadlessRenderer(numRenderThreads int) (*Renderer, error) {
 
 	rng := rand.New(rand.NewPCG(1, 2))
 
-	// Initialize boids.  Each boid is one ballista in the scene, so this sets
+	// Initialize boids.  Each boid is one mesh in the scene, so this sets
 	// how hard the renderer is taxed; the O(n^2) boid update is serial, so keep
 	// it from dominating frame time.
 	const numBoids = 500
