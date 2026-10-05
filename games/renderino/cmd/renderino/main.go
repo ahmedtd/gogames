@@ -946,6 +946,14 @@ func (r *RenderState) RenderRay(ray Ray, stack *bvh.Stack, stats *RayStats) RGBP
 // floating-point error.
 const shadowBias = 1e-3
 
+// shadowCutoffPower is the light power below which matteShade skips a point
+// light's shadow ray.  Exposure only ever divides pixel power (by at least
+// 1), and the output has 256 levels per unit power, so skipping the shadow
+// ray can brighten a pixel that should be in shadow by at most this many
+// levels.  Four levels is barely visible, and in wide views it saves a large
+// share of the point light's shadow rays.
+const shadowCutoffPower = 4.0 / 256
+
 // Occluded reports whether anything in the scene blocks ray for t in
 // (tLo, tHi).  It stops at the first blocker found, rather than searching for
 // the nearest.
@@ -997,10 +1005,20 @@ func (r *RenderState) matteShade(contact *Contact, stack *bvh.Stack, stats *RayS
 		falloff := 1.0 / distanceToLight / distanceToLight
 
 		dot := fvec4.IProd(contact.N, dirToLight)
-		// With the unnormalized slope, the light is at t = 1, so anything
-		// with t < 1 is between the contact and the light.
-		shadowRay := Ray{Point: shadowOrigin, Slope: fvec4.SubVV(l.Center, shadowOrigin)}
-		if dot > 0.0 && !r.Occluded(shadowRay, 0, 1, stack, stats) {
+		if dot <= 0.0 {
+			continue
+		}
+
+		// A light too dim here to visibly change the pixel isn't worth a
+		// shadow ray; its contribution is added unshadowed.
+		lit := dot*falloff*max(l.Power[0], l.Power[1], l.Power[2]) < shadowCutoffPower
+		if !lit {
+			// With the unnormalized slope, the light is at t = 1, so
+			// anything with t < 1 is between the contact and the light.
+			shadowRay := Ray{Point: shadowOrigin, Slope: fvec4.SubVV(l.Center, shadowOrigin)}
+			lit = !r.Occluded(shadowRay, 0, 1, stack, stats)
+		}
+		if lit {
 			totalPower[0] += dot * falloff * l.Power[0]
 			totalPower[1] += dot * falloff * l.Power[1]
 			totalPower[2] += dot * falloff * l.Power[2]
