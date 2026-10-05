@@ -78,8 +78,8 @@ func TestRasterProjectionMatchesCameraRays(t *testing.T) {
 // TestRasterizeMatchesRaytrace rasterizes random triangles, including ones
 // that cross the near plane, lie behind the camera, or extend far past the
 // guard band, and checks that each covers the same samples as raytracing it
-// would, at the same depth.  Mismatches are allowed only for the few samples
-// within snapping distance of an edge.
+// would, at the same depth, facing, and barycentric coordinates.  Mismatches
+// are allowed only for the few samples within snapping distance of an edge.
 func TestRasterizeMatchesRaytrace(t *testing.T) {
 	const rx, ry = 200, 150
 	cam := newRasterTestCamera(fvec4.T{0, 0, 1}, fvec4.T{1, 0.2, -0.1}, rx, ry)
@@ -88,7 +88,7 @@ func TestRasterizeMatchesRaytrace(t *testing.T) {
 
 	for _, samples := range []int{1, 4} {
 		for _, cullBack := range []bool{false, true} {
-			vb := NewVisBuffer(40, 30, 104, 78, samples)
+			vb := NewGBuffer(40, 30, 104, 78, samples)
 			rng := rand.New(rand.NewPCG(1, 2))
 
 			var covered, mismatched int
@@ -113,8 +113,16 @@ func TestRasterizeMatchesRaytrace(t *testing.T) {
 				tri := MeshTri{V0: vs[0], E1: fvec4.SubVV(vs[1], vs[0]), E2: fvec4.SubVV(vs[2], vs[0])}
 				frontFacing := dot3(fvec4.CProd3(tri.E1, tri.E2), fvec4.SubVV(vs[0], cam.Center)) < 0
 
+				// Each vertex's normal is a different basis vector, so the
+				// interpolated normal is the barycentric coordinates.  It's
+				// negated on back faces, to face the camera.
+				attrs := RasterAttrs{
+					Normals:    [3]fvec4.T{{1, 0, 0, 0}, {0, 1, 0, 0}, {0, 0, 1, 0}},
+					GeomNormal: fvec4.T{1, 1, 1, 0},
+				}
+
 				vb.Clear()
-				vb.RasterizeTri(clip, cullBack, VisHit{0, int32(i)})
+				vb.RasterizeTri(clip, &attrs, cullBack, VisHit{Tri: int32(i)})
 
 				for py := vb.SrcY; py < vb.LimY; py++ {
 					for px := vb.SrcX; px < vb.LimX; px++ {
@@ -124,7 +132,7 @@ func TestRasterizeMatchesRaytrace(t *testing.T) {
 
 							ray := cameraSampleRay(cam, px, py, s, samples, rx, ry)
 							_, _, _, ok := tri.RayIntersect(ray.Point, ray.Slope, 0, float32(math.Inf(1)))
-							wantW := planeDepth(vs, ray, eye)
+							wantW, wantB1, wantB2 := planeHit(vs, ray, eye)
 							want := ok && wantW >= rasterNear && (frontFacing || !cullBack)
 
 							if got || want {
@@ -134,9 +142,25 @@ func TestRasterizeMatchesRaytrace(t *testing.T) {
 								mismatched++
 								continue
 							}
-							if got && fmath.Abs(vb.InvDepth[idx]*wantW-1) > 1e-4 {
+							if !got {
+								continue
+							}
+							if fmath.Abs(vb.InvDepth[idx]*wantW-1) > 1e-4 {
 								t.Errorf("samples=%d cullBack=%v tri %d: pixel (%d, %d) sample %d has inverse depth %v; want %v",
 									samples, cullBack, i, px, py, s, vb.InvDepth[idx], 1/wantW)
+							}
+							if vb.Hits[idx].Back != !frontFacing {
+								t.Errorf("samples=%d cullBack=%v tri %d: pixel (%d, %d) sample %d has Back=%v; want %v",
+									samples, cullBack, i, px, py, s, vb.Hits[idx].Back, !frontFacing)
+							}
+							wantN := [3]float32{1 - wantB1 - wantB2, wantB1, wantB2}
+							if !frontFacing {
+								wantN = [3]float32{-wantN[0], -wantN[1], -wantN[2]}
+							}
+							gotN := vb.Normals[idx]
+							if fmath.Abs(gotN[0]-wantN[0]) > 1e-4 || fmath.Abs(gotN[1]-wantN[1]) > 1e-4 || fmath.Abs(gotN[2]-wantN[2]) > 1e-4 {
+								t.Errorf("samples=%d cullBack=%v tri %d: pixel (%d, %d) sample %d has normal %v; want %v",
+									samples, cullBack, i, px, py, s, gotN, wantN)
 							}
 						}
 					}
@@ -151,10 +175,11 @@ func TestRasterizeMatchesRaytrace(t *testing.T) {
 	}
 }
 
-// planeDepth returns the eye-axis depth at which ray meets the plane of
-// triangle vs, computed in float64 so that it's an accurate reference even for
-// huge triangles.
-func planeDepth(vs [3]fvec4.T, ray Ray, eye fvec4.T) float32 {
+// planeHit returns the eye-axis depth at which ray meets the plane of triangle
+// vs, and the barycentric coordinates there with respect to vertices 1 and 2.
+// It works in float64, so that it's an accurate reference even for huge
+// triangles.
+func planeHit(vs [3]fvec4.T, ray Ray, eye fvec4.T) (w, b1, b2 float32) {
 	var v [3][3]float64
 	for i := range v {
 		for k := range 3 {
@@ -170,16 +195,28 @@ func planeDepth(vs [3]fvec4.T, ray Ray, eye fvec4.T) float32 {
 		den += n[k] * float64(ray.Slope[k])
 		eyeSlope += float64(eye[k]) * float64(ray.Slope[k])
 	}
-	return float32(num / den * eyeSlope)
+	t := num / den
+
+	// p - v0 = b1*a + b2*b, so (p - v0) x b = b1*n and a x (p - v0) = b2*n.
+	var pv [3]float64
+	for k := range 3 {
+		pv[k] = float64(ray.Point[k]) + t*float64(ray.Slope[k]) - v[0][k]
+	}
+	nn := n[0]*n[0] + n[1]*n[1] + n[2]*n[2]
+	pvb := cross3(pv, b)
+	apv := cross3(a, pv)
+	b1 = float32((pvb[0]*n[0] + pvb[1]*n[1] + pvb[2]*n[2]) / nn)
+	b2 = float32((apv[0]*n[0] + apv[1]*n[1] + apv[2]*n[2]) / nn)
+	return float32(t * eyeSlope), b1, b2
 }
 
 // coverageCounts rasterizes each triangle on its own, returning how many
 // triangles covered each sample of vb.
-func coverageCounts(vb *VisBuffer, tris [][3]fvec4.T) []int {
+func coverageCounts(vb *GBuffer, tris [][3]fvec4.T) []int {
 	counts := make([]int, len(vb.Hits))
 	vb.Clear()
 	for i, clip := range tris {
-		vb.RasterizeTri(clip, false, VisHit{0, int32(i)})
+		vb.RasterizeTri(clip, &RasterAttrs{}, false, VisHit{Tri: int32(i)})
 		for j, h := range vb.Hits {
 			if h != visHitNone {
 				counts[j]++
@@ -196,7 +233,7 @@ func coverageCounts(vb *VisBuffer, tris [][3]fvec4.T) []int {
 // positions, and checks that every sample is covered exactly once.
 func TestRasterizeWatertightGrid(t *testing.T) {
 	for _, samples := range []int{1, 4} {
-		vb := NewVisBuffer(8, 8, 40, 32, samples)
+		vb := NewGBuffer(8, 8, 40, 32, samples)
 		rng := rand.New(rand.NewPCG(3, 4))
 
 		// Grid vertices are 4 pixels apart, jittered by multiples of a
@@ -274,7 +311,7 @@ func TestRasterizeWatertightFloor(t *testing.T) {
 	// Check one tile above the horizon, one across it, and one at the
 	// bottom of the image, nearest the camera.
 	for _, tile := range [][4]int{{0, 0, 32, 24}, {44, 30, 76, 54}, {80, 66, 120, 90}} {
-		vb := NewVisBuffer(tile[0], tile[1], tile[2], tile[3], samples)
+		vb := NewGBuffer(tile[0], tile[1], tile[2], tile[3], samples)
 		counts := coverageCounts(vb, tris)
 		var hitFloor int
 		for py := vb.SrcY; py < vb.LimY; py++ {
@@ -312,15 +349,15 @@ func TestRasterizeDepthOrder(t *testing.T) {
 	near := [3]fvec4.T{{0, 0, 0, 1}, {20, 0, 0, 1}, {0, 20, 0, 1}}
 	far := [3]fvec4.T{{0, 0, 0, 2}, {40, 0, 0, 2}, {0, 40, 0, 2}}
 	for _, order := range [][2]int{{0, 1}, {1, 0}} {
-		vb := NewVisBuffer(0, 0, 16, 16, 1)
+		vb := NewGBuffer(0, 0, 16, 16, 1)
 		tris := [2][3]fvec4.T{near, far}
 		for _, i := range order {
-			vb.RasterizeTri(tris[i], false, VisHit{0, int32(i)})
+			vb.RasterizeTri(tris[i], &RasterAttrs{}, false, VisHit{Tri: int32(i)})
 		}
 		// Pixel (2, 2) is covered by both, at inverse depths 1 and 0.5.
 		idx := 2*16 + 2
-		if vb.Hits[idx] != (VisHit{0, 0}) || vb.InvDepth[idx] != 1 {
-			t.Errorf("order %v: pixel (2, 2) has hit %v at inverse depth %v; want %v at 1", order, vb.Hits[idx], vb.InvDepth[idx], VisHit{0, 0})
+		if vb.Hits[idx].Tri != 0 || vb.InvDepth[idx] != 1 {
+			t.Errorf("order %v: pixel (2, 2) has hit %v at inverse depth %v; want triangle 0 at 1", order, vb.Hits[idx], vb.InvDepth[idx])
 		}
 	}
 }

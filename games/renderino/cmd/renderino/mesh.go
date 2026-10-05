@@ -157,38 +157,6 @@ func (tri *MeshTri) RayIntersect(point, slope fvec4.T, queryLo, queryHi float32)
 	return t, b1, b2, true
 }
 
-// RayPlaneIntersect is RayIntersect without its range and inside tests: it
-// returns where a model-space ray meets the triangle's plane, as the ray
-// parameter t and the barycentric coordinates (b1, b2), which may lie outside
-// the triangle.  It fails only if the ray is parallel to the plane.
-func (tri *MeshTri) RayPlaneIntersect(point, slope fvec4.T) (t, b1, b2 float32, ok bool) {
-	e1x, e1y, e1z := tri.E1[0], tri.E1[1], tri.E1[2]
-	e2x, e2y, e2z := tri.E2[0], tri.E2[1], tri.E2[2]
-	dx, dy, dz := slope[0], slope[1], slope[2]
-
-	px := dy*e2z - dz*e2y
-	py := dz*e2x - dx*e2z
-	pz := dx*e2y - dy*e2x
-	det := e1x*px + e1y*py + e1z*pz
-	if det == 0 {
-		return 0, 0, 0, false
-	}
-	invDet := 1 / det
-
-	sx := point[0] - tri.V0[0]
-	sy := point[1] - tri.V0[1]
-	sz := point[2] - tri.V0[2]
-	b1 = (sx*px + sy*py + sz*pz) * invDet
-
-	qx := sy*e1z - sz*e1y
-	qy := sz*e1x - sx*e1z
-	qz := sx*e1y - sy*e1x
-	b2 = (dx*qx + dy*qy + dz*qz) * invDet
-	t = (e2x*qx + e2y*qy + e2z*qz) * invDet
-
-	return t, b1, b2, true
-}
-
 // MeshInstance places a MeshModel in the world with an affine transform.
 type MeshInstance struct {
 	Model *MeshModel
@@ -285,41 +253,19 @@ func (m *MeshInstance) RayContact(ray Ray, queryLo, queryHi float32, stack *bvh.
 	return m.triContact(ray, hitRef, hitT, hitB1, hitB2)
 }
 
-// TriContact builds the contact of a world-space ray with triangle ref of
-// the instance, which is already known to be the nearest thing the ray hits
-// (by rasterization).  Rasterization and raytracing can disagree by a hair
-// about which samples near an edge a triangle covers, so the hit is clamped
-// into the triangle rather than rejected.  It fails if the ray is parallel to
-// the triangle, or meets its plane behind the ray origin.
-func (m *MeshInstance) TriContact(ray Ray, ref int) (Contact, bool) {
-	modelPoint := fmat44.MulMV(m.worldToModel, fvec4.T{ray.Point[0], ray.Point[1], ray.Point[2], 1})
-	modelPoint[3] = 0
-	modelSlope := fmat44.MulMV(m.worldToModel, fvec4.T{ray.Slope[0], ray.Slope[1], ray.Slope[2], 0})
-
-	t, b1, b2, ok := m.Model.Tris[ref].RayPlaneIntersect(modelPoint, modelSlope)
-	if !ok || t <= 0 {
-		return Contact{}, false
-	}
-	b1 = max(b1, 0)
-	b2 = max(b2, 0)
-	if sum := b1 + b2; sum > 1 {
-		b1 /= sum
-		b2 /= sum
-	}
-
-	return m.triContact(ray, ref, t, b1, b2), true
-}
-
 // triContact builds the contact of a world-space ray with triangle ref of the
 // instance, at ray parameter t and barycentric coordinates (b1, b2).
 func (m *MeshInstance) triContact(ray Ray, ref int, hitT, hitB1, hitB2 float32) Contact {
 	tri := &m.Model.Tris[ref]
-	b0 := 1 - hitB1 - hitB2
 
+	// Attributes are interpolated as offsets from vertex 0's, which is exact
+	// when the vertices share a value.  That matters for texture coordinates
+	// lying on a texel boundary, which are common in palette-textured
+	// meshes: b0*uv + b1*uv + b2*uv would round to either side of it.
 	modelN := fvec4.T{
-		b0*tri.Ns[0][0] + hitB1*tri.Ns[1][0] + hitB2*tri.Ns[2][0],
-		b0*tri.Ns[0][1] + hitB1*tri.Ns[1][1] + hitB2*tri.Ns[2][1],
-		b0*tri.Ns[0][2] + hitB1*tri.Ns[1][2] + hitB2*tri.Ns[2][2],
+		tri.Ns[0][0] + hitB1*(tri.Ns[1][0]-tri.Ns[0][0]) + hitB2*(tri.Ns[2][0]-tri.Ns[0][0]),
+		tri.Ns[0][1] + hitB1*(tri.Ns[1][1]-tri.Ns[0][1]) + hitB2*(tri.Ns[2][1]-tri.Ns[0][1]),
+		tri.Ns[0][2] + hitB1*(tri.Ns[1][2]-tri.Ns[0][2]) + hitB2*(tri.Ns[2][2]-tri.Ns[0][2]),
 		0,
 	}
 	n := fvec4.Normalize(m.normalToWorld(modelN))
@@ -346,8 +292,8 @@ func (m *MeshInstance) triContact(ray Ray, ref int, hitT, hitB1, hitB2 float32) 
 	}
 
 	uv := fvec2.T{
-		b0*tri.UVs[0][0] + hitB1*tri.UVs[1][0] + hitB2*tri.UVs[2][0],
-		b0*tri.UVs[0][1] + hitB1*tri.UVs[1][1] + hitB2*tri.UVs[2][1],
+		tri.UVs[0][0] + hitB1*(tri.UVs[1][0]-tri.UVs[0][0]) + hitB2*(tri.UVs[2][0]-tri.UVs[0][0]),
+		tri.UVs[0][1] + hitB1*(tri.UVs[1][1]-tri.UVs[0][1]) + hitB2*(tri.UVs[2][1]-tri.UVs[0][1]),
 	}
 	contact.Albedo = sampleDiffuse(m.Model.Diffuse, uv)
 

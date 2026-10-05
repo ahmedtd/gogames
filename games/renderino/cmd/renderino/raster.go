@@ -3,7 +3,9 @@ package main
 import (
 	"math"
 
+	"github.com/ahmedtd/gogames/lib/graphics/renderable3"
 	"github.com/ahmedtd/gogames/lib/vmath/fmat44"
+	"github.com/ahmedtd/gogames/lib/vmath/fvec2"
 	"github.com/ahmedtd/gogames/lib/vmath/fvec4"
 )
 
@@ -19,12 +21,32 @@ import (
 //     are evaluated incrementally with exact integer math, with a top-left
 //     fill rule.  So triangles sharing an edge cover each sample along it
 //     exactly once: there are no cracks or double hits.
-//   - Only the triangle's identity and depth are recorded, in a VisBuffer.
-//     Shading reconstructs the contact by intersecting the camera ray with
-//     that one triangle, so no attributes are interpolated here.
+//   - Vertex attributes are interpolated perspective-correctly, and the
+//     nearest surface's depth, normal, and albedo are recorded in a GBuffer
+//     for deferred shading.
 //
 // Clip space here is (X, Y, unused, W), where W is the depth along the
 // camera's eye axis, and X/W and Y/W are raster positions in pixels.
+//
+// Perspective-correct interpolation uses 2D homogeneous coordinates (Olano
+// and Greer, "Triangle Scan Conversion using 2D Homogeneous Coordinates").
+// With vi = (Xi, Yi, Wi) the clip-space vertices, the functions
+//
+//	Ei(x, y) = (vj x vk) . (x, y, 1)	for (i, j, k) cyclic
+//
+// are affine in raster space, and at raster position (x, y):
+//
+//   - E0 + E1 + E2 = D/W, where D = v0 . (v1 x v2), so inverse depth is
+//     (E0 + E1 + E2)/D;
+//   - the triangle's barycentric coordinates (in world space, not raster
+//     space) are Ei / (E0 + E1 + E2).
+//
+// So each fragment evaluates three affine functions and does one divide.
+// These are in terms of the original triangle, so they're unaffected by
+// clipping, and the sign of D gives the triangle's facing even before
+// clipping.  This is the same result as section 11.3.1 of Fundamentals of
+// Computer Graphics, which interpolates attributes and 1/W linearly in raster
+// space and divides.
 
 const (
 	// Raster positions are snapped to 1/rasterSubpixels of a pixel.
@@ -102,9 +124,10 @@ func rasterTilePlanes(toClip *fmat44.T, srcX, srcY, limX, limY int) [5]fvec4.T {
 }
 
 // VisHit identifies a triangle: Tri indexes the Tris of the MeshModel of
-// MeshInstances[Inst].
+// MeshInstances[Inst].  Back is set if the camera sees the triangle's back.
 type VisHit struct {
 	Inst, Tri int32
+	Back      bool
 }
 
 // RasterStats counts rasterization work.  Like RayStats, it's plain counters,
@@ -125,13 +148,29 @@ func (s *RasterStats) Add(o *RasterStats) {
 }
 
 // visHitNone marks a sample that no triangle covers.
-var visHitNone = VisHit{-1, -1}
+var visHitNone = VisHit{-1, -1, false}
 
-// VisBuffer is a tile's visibility buffer: for each camera sample in the tile,
-// the nearest triangle rasterized over it so far.  Samples are laid out like
-// RenderTile.CameraRays: row-major by pixel, with each pixel's samples
-// contiguous.
-type VisBuffer struct {
+// RasterAttrs are a triangle's vertex attributes, interpolated across it by
+// RasterizeTri.
+type RasterAttrs struct {
+	// World-space shading normal at each vertex, not necessarily
+	// normalized.
+	Normals [3]fvec4.T
+
+	// World-space geometric normal, on the side the vertices wind
+	// counterclockwise around (as in MeshTri), not necessarily normalized.
+	GeomNormal fvec4.T
+
+	// Texture coordinates of each vertex in Diffuse; see sampleDiffuse.
+	UVs     [3]fvec2.T
+	Diffuse *renderable3.UncompressedImage
+}
+
+// GBuffer is a tile's geometry buffer: for each camera sample in the tile, the
+// nearest triangle rasterized over it so far, and its surface there.  Samples
+// are laid out like RenderTile.CameraRays: row-major by pixel, with each
+// pixel's samples contiguous.
+type GBuffer struct {
 	SrcX, SrcY int
 	LimX, LimY int
 	Samples    int
@@ -140,25 +179,31 @@ type VisBuffer struct {
 	Stats RasterStats
 
 	// Per sample, the inverse depth (1/W) of the nearest triangle, or 0 if
-	// none covers it.  Kept apart from Hits so the depth test reads densely.
+	// none covers it.  Kept apart from the rest so the depth test reads
+	// densely.
 	InvDepth []float32
 	Hits     []VisHit
+
+	// Per sample covered by a triangle, its interpolated world-space
+	// shading normal (not normalized), facing the camera, and its albedo.
+	Normals [][3]float32
+	Albedos []RGBPower
 
 	// Position of each sample within its pixel, in subpixels from the
 	// pixel's top-left corner.
 	sampleX, sampleY []int64
 
 	// Scratch space for each edge's per-sample edge function offsets, and
-	// the per-sample inverse depth offsets.
+	// each interpolation plane's per-sample offsets.
 	edgeOffsets  [3][]int64
-	depthOffsets []float32
+	planeOffsets [3][]float32
 }
 
-// NewVisBuffer makes an empty VisBuffer covering pixels [srcX, limX) x [srcY,
+// NewGBuffer makes an empty GBuffer covering pixels [srcX, limX) x [srcY,
 // limY), with samples per pixel placed by supersampleOffset.
-func NewVisBuffer(srcX, srcY, limX, limY, samples int) *VisBuffer {
+func NewGBuffer(srcX, srcY, limX, limY, samples int) *GBuffer {
 	n := (limX - srcX) * (limY - srcY) * samples
-	vb := &VisBuffer{
+	gb := &GBuffer{
 		SrcX:     srcX,
 		SrcY:     srcY,
 		LimX:     limX,
@@ -166,41 +211,57 @@ func NewVisBuffer(srcX, srcY, limX, limY, samples int) *VisBuffer {
 		Samples:  samples,
 		InvDepth: make([]float32, n),
 		Hits:     make([]VisHit, n),
+		Normals:  make([][3]float32, n),
+		Albedos:  make([]RGBPower, n),
 		sampleX:  make([]int64, samples),
 		sampleY:  make([]int64, samples),
-
-		depthOffsets: make([]float32, samples),
 	}
 	for s := range samples {
 		ox, oy := supersampleOffset(s, samples)
-		vb.sampleX[s] = int64(math.Round(float64(ox) * rasterSubpixels))
-		vb.sampleY[s] = int64(math.Round(float64(oy) * rasterSubpixels))
+		gb.sampleX[s] = int64(math.Round(float64(ox) * rasterSubpixels))
+		gb.sampleY[s] = int64(math.Round(float64(oy) * rasterSubpixels))
 	}
-	for e := range vb.edgeOffsets {
-		vb.edgeOffsets[e] = make([]int64, samples)
+	for e := range gb.edgeOffsets {
+		gb.edgeOffsets[e] = make([]int64, samples)
+		gb.planeOffsets[e] = make([]float32, samples)
 	}
-	vb.Clear()
-	return vb
+	gb.Clear()
+	return gb
 }
 
 // Clear empties every sample, and resets Stats.
-func (vb *VisBuffer) Clear() {
-	vb.Stats = RasterStats{}
-	clear(vb.InvDepth)
-	for i := range vb.Hits {
-		vb.Hits[i] = visHitNone
+func (gb *GBuffer) Clear() {
+	gb.Stats = RasterStats{}
+	clear(gb.InvDepth)
+	for i := range gb.Hits {
+		gb.Hits[i] = visHitNone
 	}
 }
 
-// RasterizeTri depth-tests a clip-space triangle against every sample it
-// covers, recording hit at the samples where it's nearest.  If cullBack is
-// set, triangles facing away from the camera (by the winding of their
-// vertices, as in MeshTri) are skipped.
-func (vb *VisBuffer) RasterizeTri(clip [3]fvec4.T, cullBack bool, hit VisHit) {
-	vb.Stats.Tris++
+// rasterTri is a triangle set up for rasterization.
+type rasterTri struct {
+	// Affine functions of raster position (x, y), as {a, b, c} for
+	// a*x + b*y + c, giving inverse depth and the numerators of barycentric
+	// coordinates 1 and 2 (see the top of this file).
+	invDepth, b1, b2 [3]float64
 
-	// Trivially reject triangles entirely outside one clip plane, and pass
-	// triangles entirely inside all of them straight through.
+	attrs *RasterAttrs
+
+	// attrs.GeomNormal, flipped if need be to face the camera.
+	geomNormal fvec4.T
+
+	hit VisHit
+}
+
+// RasterizeTri depth-tests a clip-space triangle against every sample it
+// covers, recording hit and the triangle's surface, interpolated from attrs,
+// at the samples where it's nearest.  If cullBack is set, triangles facing
+// away from the camera (by the winding of their vertices, as in MeshTri) are
+// skipped.
+func (gb *GBuffer) RasterizeTri(clip [3]fvec4.T, attrs *RasterAttrs, cullBack bool, hit VisHit) {
+	gb.Stats.Tris++
+
+	// Trivially reject triangles entirely outside one clip plane.
 	var outside [3]uint8
 	for i, v := range clip {
 		for p := range numClipPlanes {
@@ -212,13 +273,44 @@ func (vb *VisBuffer) RasterizeTri(clip [3]fvec4.T, cullBack bool, hit VisHit) {
 	if outside[0]&outside[1]&outside[2] != 0 {
 		return
 	}
-	if outside[0]|outside[1]|outside[2] == 0 {
-		vb.rasterizeClipped(clip[0], clip[1], clip[2], cullBack, hit)
+
+	// Set up the homogeneous interpolation functions.  D's sign is the
+	// triangle's facing: raster y points down, so triangles facing the
+	// camera wind clockwise on screen, and D < 0.
+	var v [3][3]float64
+	for i, c := range clip {
+		v[i] = [3]float64{float64(c[0]), float64(c[1]), float64(c[3])}
+	}
+	var e [3][3]float64
+	for i := range 3 {
+		e[i] = cross3(v[(i+1)%3], v[(i+2)%3])
+	}
+	d := v[0][0]*e[0][0] + v[0][1]*e[0][1] + v[0][2]*e[0][2]
+	if d == 0 {
+		// Edge-on to the camera.
 		return
 	}
+	hit.Back = d > 0
+	if hit.Back && cullBack {
+		return
+	}
+	tri := rasterTri{attrs: attrs, geomNormal: attrs.GeomNormal, hit: hit}
+	if hit.Back {
+		tri.geomNormal = fvec4.MulVS(attrs.GeomNormal, -1)
+	}
+	for k := range 3 {
+		tri.invDepth[k] = (e[0][k] + e[1][k] + e[2][k]) / d
+		tri.b1[k] = e[1][k] / d
+		tri.b2[k] = e[2][k] / d
+	}
 
-	// Clip to each plane in turn, then fan the remaining convex polygon
-	// back into triangles.  Clipping preserves winding.
+	// Pass triangles entirely inside all the clip planes straight through.
+	// Otherwise, clip to each plane in turn, then fan the remaining convex
+	// polygon back into triangles.
+	if outside[0]|outside[1]|outside[2] == 0 {
+		gb.rasterizeClipped(clip[0], clip[1], clip[2], &tri)
+		return
+	}
 	var bufA, bufB [3 + numClipPlanes]fvec4.T
 	poly := append(bufA[:0], clip[:]...)
 	scratch := bufB[:0]
@@ -233,7 +325,15 @@ func (vb *VisBuffer) RasterizeTri(clip [3]fvec4.T, cullBack bool, hit VisHit) {
 		}
 	}
 	for i := 1; i+1 < len(poly); i++ {
-		vb.rasterizeClipped(poly[0], poly[i], poly[i+1], cullBack, hit)
+		gb.rasterizeClipped(poly[0], poly[i], poly[i+1], &tri)
+	}
+}
+
+func cross3(a, b [3]float64) [3]float64 {
+	return [3]float64{
+		a[1]*b[2] - a[2]*b[1],
+		a[2]*b[0] - a[0]*b[2],
+		a[0]*b[1] - a[1]*b[0],
 	}
 }
 
@@ -289,53 +389,41 @@ func clipPolygon(in []fvec4.T, p int, out []fvec4.T) []fvec4.T {
 	return out
 }
 
-// rasterizeClipped rasterizes a triangle whose vertices are all inside the
-// clip planes.
-func (vb *VisBuffer) rasterizeClipped(c0, c1, c2 fvec4.T, cullBack bool, hit VisHit) {
+// rasterizeClipped rasterizes the part of tri covered by the triangle (c0, c1,
+// c2), whose vertices are all inside the clip planes.
+func (gb *GBuffer) rasterizeClipped(c0, c1, c2 fvec4.T, tri *rasterTri) {
 	// Perspective divide, and snap to the subpixel grid for coverage.
-	// Inverse depth is linear in raster space, so it's interpolated as a
-	// plane, fitted to the unsnapped vertices: near the near plane, inverse
-	// depth changes so steeply that snapping would skew it noticeably.
 	var x, y [3]int64
-	var fx, fy, fz [3]float64
 	for i, c := range [3]fvec4.T{c0, c1, c2} {
 		invW := 1 / float64(c[3])
-		fx[i] = float64(c[0]) * invW
-		fy[i] = float64(c[1]) * invW
-		fz[i] = invW
-		x[i] = int64(math.Round(fx[i] * rasterSubpixels))
-		y[i] = int64(math.Round(fy[i] * rasterSubpixels))
+		x[i] = int64(math.Round(float64(c[0]) * invW * rasterSubpixels))
+		y[i] = int64(math.Round(float64(c[1]) * invW * rasterSubpixels))
 	}
 
-	// Raster y points down, so triangles facing the camera wind clockwise
-	// on screen, giving a negative area here.  Swap two vertices of those so
-	// that every triangle's edge functions are positive inside.
+	// Swap two vertices of triangles winding clockwise on screen, so that
+	// every triangle's edge functions are positive inside.
 	area := (x[1]-x[0])*(y[2]-y[0]) - (y[1]-y[0])*(x[2]-x[0])
 	switch {
 	case area == 0:
 		return
-	case area > 0:
-		if cullBack {
-			return
-		}
-	default:
+	case area < 0:
 		x[1], x[2] = x[2], x[1]
 		y[1], y[2] = y[2], y[1]
-		area = -area
 	}
 
 	// Pixel bounds of the triangle, clamped to the tile.  Pixel p's samples
 	// lie in subpixels [p*rasterSubpixels, (p+1)*rasterSubpixels).
-	px0 := max(int(min(x[0], x[1], x[2])>>rasterSubpixelBits), vb.SrcX)
-	px1 := min(int(max(x[0], x[1], x[2])>>rasterSubpixelBits), vb.LimX-1)
-	py0 := max(int(min(y[0], y[1], y[2])>>rasterSubpixelBits), vb.SrcY)
-	py1 := min(int(max(y[0], y[1], y[2])>>rasterSubpixelBits), vb.LimY-1)
+	px0 := max(int(min(x[0], x[1], x[2])>>rasterSubpixelBits), gb.SrcX)
+	px1 := min(int(max(x[0], x[1], x[2])>>rasterSubpixelBits), gb.LimX-1)
+	py0 := max(int(min(y[0], y[1], y[2])>>rasterSubpixelBits), gb.SrcY)
+	py1 := min(int(max(y[0], y[1], y[2])>>rasterSubpixelBits), gb.LimY-1)
 	if px0 > px1 || py0 > py1 {
 		return
 	}
 
 	// Edge e runs between the two vertices other than e, and its edge
-	// function is proportional to vertex e's barycentric coordinate:
+	// function is proportional to vertex e's (raster space) barycentric
+	// coordinate:
 	//
 	//	E(p) = (xb-xa)*(py-ya) - (yb-ya)*(px-xa)
 	//
@@ -359,46 +447,61 @@ func (vb *VisBuffer) rasterizeClipped(c0, c1, c2 fvec4.T, cullBack bool, hit Vis
 
 		stepX[e] = -dy << rasterSubpixelBits
 		stepY[e] = dx << rasterSubpixelBits
-		for s := range vb.Samples {
-			vb.edgeOffsets[e][s] = dx*vb.sampleY[s] - dy*vb.sampleX[s]
+		for s := range gb.Samples {
+			gb.edgeOffsets[e][s] = dx*gb.sampleY[s] - dy*gb.sampleX[s]
 		}
 	}
 
-	// Fit the inverse depth plane z = dzdx*x + dzdy*y + z00, with x and y
-	// in pixels relative to the origin of pixel (px0, py0).  Its normal is
-	// the cross product of two edges in (x, y, z).
-	ax, ay, az := fx[1]-fx[0], fy[1]-fy[0], fz[1]-fz[0]
-	bx, by, bz := fx[2]-fx[0], fy[2]-fy[0], fz[2]-fz[0]
-	nx, ny, nz := ay*bz-az*by, az*bx-ax*bz, ax*by-ay*bx
-	if nz == 0 {
-		return
+	// The interpolation planes, as their value at the origin of pixel (px0,
+	// py0) and their steps per pixel and per sample.  The origin value is
+	// computed in float64, so that only small offsets from it are in
+	// float32.
+	n := gb.Samples
+	var planeOrigin, planeDX, planeDY [3]float32
+	for k, p := range [3]*[3]float64{&tri.invDepth, &tri.b1, &tri.b2} {
+		planeOrigin[k] = float32(p[0]*float64(px0) + p[1]*float64(py0) + p[2])
+		planeDX[k] = float32(p[0])
+		planeDY[k] = float32(p[1])
+		for s := range n {
+			gb.planeOffsets[k][s] = planeDX[k]*float32(gb.sampleX[s])/rasterSubpixels + planeDY[k]*float32(gb.sampleY[s])/rasterSubpixels
+		}
 	}
-	dzdx64, dzdy64 := -nx/nz, -ny/nz
-	dzdx, dzdy := float32(dzdx64), float32(dzdy64)
-	z00 := float32(fz[0] + dzdx64*(float64(px0)-fx[0]) + dzdy64*(float64(py0)-fy[0]))
 
-	n := vb.Samples
-	vb.Stats.TrisSetUp++
-	vb.Stats.SamplesTested += int64((px1-px0+1)*(py1-py0+1)) * int64(n)
+	gb.Stats.TrisSetUp++
+	gb.Stats.SamplesTested += int64((px1-px0+1)*(py1-py0+1)) * int64(n)
 	var samplesHit int64
 
-	for s := range n {
-		vb.depthOffsets[s] = dzdx*float32(vb.sampleX[s])/rasterSubpixels + dzdy*float32(vb.sampleY[s])/rasterSubpixels
-	}
+	// Attributes are interpolated as offsets from vertex 0's, which is exact
+	// when the vertices share a value (see MeshInstance.triContact).
+	attrs := tri.attrs
+	n0 := attrs.Normals[0]
+	dn1 := fvec4.SubVV(attrs.Normals[1], n0)
+	dn2 := fvec4.SubVV(attrs.Normals[2], n0)
+	gn := tri.geomNormal
+	uv0 := attrs.UVs[0]
+	duv1 := fvec2.T{attrs.UVs[1][0] - uv0[0], attrs.UVs[1][1] - uv0[1]}
+	duv2 := fvec2.T{attrs.UVs[2][0] - uv0[0], attrs.UVs[2][1] - uv0[1]}
 
-	off0 := vb.edgeOffsets[0][:n]
-	off1 := vb.edgeOffsets[1][:n]
-	off2 := vb.edgeOffsets[2][:n]
-	offZ := vb.depthOffsets[:n]
-	tileW := vb.LimX - vb.SrcX
+	off0 := gb.edgeOffsets[0][:n]
+	off1 := gb.edgeOffsets[1][:n]
+	off2 := gb.edgeOffsets[2][:n]
+	offZ := gb.planeOffsets[0][:n]
+	offB1 := gb.planeOffsets[1][:n]
+	offB2 := gb.planeOffsets[2][:n]
+	tileW := gb.LimX - gb.SrcX
 	for py := py0; py <= py1; py++ {
 		e0, e1, e2 := rowE[0], rowE[1], rowE[2]
-		rowZ := z00 + dzdy*float32(py-py0)
-		i := ((py-vb.SrcY)*tileW + (px0 - vb.SrcX)) * n
+		dy := float32(py - py0)
+		rowZ := planeOrigin[0] + planeDY[0]*dy
+		rowB1 := planeOrigin[1] + planeDY[1]*dy
+		rowB2 := planeOrigin[2] + planeDY[2]*dy
+		i := ((py-gb.SrcY)*tileW + (px0 - gb.SrcX)) * n
 		for px := px0; px <= px1; px++ {
-			pixelZ := rowZ + dzdx*float32(px-px0)
-			depths := vb.InvDepth[i : i+n]
-			hits := vb.Hits[i : i+n]
+			dx := float32(px - px0)
+			pixelZ := rowZ + planeDX[0]*dx
+			pixelB1 := rowB1 + planeDX[1]*dx
+			pixelB2 := rowB2 + planeDX[2]*dx
+			depths := gb.InvDepth[i : i+n]
 			for s := range n {
 				w0 := e0 + off0[s]
 				w1 := e1 + off1[s]
@@ -411,8 +514,30 @@ func (vb *VisBuffer) rasterizeClipped(c0, c1, c2 fvec4.T, cullBack bool, hit Vis
 					continue
 				}
 				depths[s] = d
-				hits[s] = hit
 				samplesHit++
+
+				// Perspective-correct barycentric coordinates.
+				invD := 1 / d
+				b1 := (pixelB1 + offB1[s]) * invD
+				b2 := (pixelB2 + offB2[s]) * invD
+
+				// Like RayContact, flip the shading normal to agree with
+				// the geometric normal, which faces the camera.
+				nx := n0[0] + b1*dn1[0] + b2*dn2[0]
+				ny := n0[1] + b1*dn1[1] + b2*dn2[1]
+				nz := n0[2] + b1*dn1[2] + b2*dn2[2]
+				if nx*gn[0]+ny*gn[1]+nz*gn[2] < 0 {
+					nx, ny, nz = -nx, -ny, -nz
+				}
+
+				uv := fvec2.T{
+					uv0[0] + b1*duv1[0] + b2*duv2[0],
+					uv0[1] + b1*duv1[1] + b2*duv2[1],
+				}
+
+				gb.Hits[i+s] = tri.hit
+				gb.Normals[i+s] = [3]float32{nx, ny, nz}
+				gb.Albedos[i+s] = sampleDiffuse(attrs.Diffuse, uv)
 			}
 			i += n
 			e0 += stepX[0]
@@ -423,5 +548,5 @@ func (vb *VisBuffer) rasterizeClipped(c0, c1, c2 fvec4.T, cullBack bool, hit Vis
 		rowE[1] += stepY[1]
 		rowE[2] += stepY[2]
 	}
-	vb.Stats.SamplesHit += samplesHit
+	gb.Stats.SamplesHit += samplesHit
 }

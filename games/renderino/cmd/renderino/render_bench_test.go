@@ -2,6 +2,7 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"image"
 	"image/png"
 	"os"
@@ -62,7 +63,7 @@ func newBenchRenderer(tb testing.TB, pose benchPose) *Renderer {
 //	benchstat old.txt new.txt
 //
 // Each pose is rendered with primary rays both raytraced and replaced by
-// rasterization.
+// rasterization, and with and without shadows.
 //
 // It also reports per-ray work counts (BVH nodes visited, inner nodes visited
 // -- one SIMD box test each -- and triangle tests) and the fraction of rays
@@ -71,32 +72,35 @@ func newBenchRenderer(tb testing.TB, pose benchPose) *Renderer {
 func BenchmarkRenderFrame(b *testing.B) {
 	for _, pose := range benchPoses {
 		for _, primary := range []string{"raytrace", "raster"} {
-			b.Run("pose="+pose.name+"/primary="+primary, func(b *testing.B) {
-				r := newBenchRenderer(b, pose)
-				r.LatestRenderState.RasterPrimary = primary == "raster"
+			for _, shadows := range []bool{true, false} {
+				b.Run(fmt.Sprintf("pose=%s/primary=%s/shadows=%v", pose.name, primary, shadows), func(b *testing.B) {
+					r := newBenchRenderer(b, pose)
+					r.LatestRenderState.RasterPrimary = primary == "raster"
+					r.LatestRenderState.Shadows = shadows
 
-				// The first frame allocates tiles and buffers.
-				r.renderFrame(benchRX, benchRY)
-
-				var stats RayStats
-				for b.Loop() {
+					// The first frame allocates tiles and buffers.
 					r.renderFrame(benchRX, benchRY)
-					stats.Add(&r.FrameStats)
-				}
 
-				b.ReportMetric(float64(b.N)*benchRX*benchRY/b.Elapsed().Seconds()/1e6, "Mrays/s")
+					var stats RayStats
+					for b.Loop() {
+						r.renderFrame(benchRX, benchRY)
+						stats.Add(&r.FrameStats)
+					}
 
-				rays := float64(stats.Rays)
-				b.ReportMetric(float64(stats.BVH.NodesVisited())/rays, "nodes/ray")
-				b.ReportMetric(float64(stats.BVH.InnerVisited)/rays, "inner/ray")
-				b.ReportMetric(float64(stats.TriTests)/rays, "tris/ray")
-				b.ReportMetric(float64(stats.RayHits)/rays, "hitfrac")
-				b.ReportMetric(float64(stats.ShadowRays)/rays, "shadows/ray")
-				b.ReportMetric(float64(stats.Raster.Tris)/rays, "rtris/ray")
-				b.ReportMetric(float64(stats.Raster.TrisSetUp)/rays, "rsetup/ray")
-				b.ReportMetric(float64(stats.Raster.SamplesTested)/rays, "rtested/ray")
-				b.ReportMetric(float64(stats.Raster.SamplesHit)/rays, "rwritten/ray")
-			})
+					b.ReportMetric(float64(b.N)*benchRX*benchRY/b.Elapsed().Seconds()/1e6, "Mrays/s")
+
+					rays := float64(stats.Rays)
+					b.ReportMetric(float64(stats.BVH.NodesVisited())/rays, "nodes/ray")
+					b.ReportMetric(float64(stats.BVH.InnerVisited)/rays, "inner/ray")
+					b.ReportMetric(float64(stats.TriTests)/rays, "tris/ray")
+					b.ReportMetric(float64(stats.RayHits)/rays, "hitfrac")
+					b.ReportMetric(float64(stats.ShadowRays)/rays, "shadows/ray")
+					b.ReportMetric(float64(stats.Raster.Tris)/rays, "rtris/ray")
+					b.ReportMetric(float64(stats.Raster.TrisSetUp)/rays, "rsetup/ray")
+					b.ReportMetric(float64(stats.Raster.SamplesTested)/rays, "rtested/ray")
+					b.ReportMetric(float64(stats.Raster.SamplesHit)/rays, "rwritten/ray")
+				})
+			}
 		}
 	}
 }

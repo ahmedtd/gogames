@@ -182,9 +182,9 @@ type RenderTile struct {
 	CameraRays    [][4]float32
 	Supersampling int
 
-	// The nearest triangle under each camera ray, when primary rays are
+	// The nearest surface under each camera ray, when primary rays are
 	// replaced by rasterization.  Laid out like CameraRays.
-	Vis *VisBuffer
+	GBuf *GBuffer
 }
 
 var _ ebiten.Game = &Renderer{}
@@ -280,6 +280,7 @@ func newHeadlessRenderer(numRenderThreads int) (*Renderer, error) {
 		Camera: camera,
 
 		RasterPrimary: true,
+		Shadows:       true,
 		CullBackFaces: true,
 
 		MeshInstances: staticMeshInstances,
@@ -381,6 +382,9 @@ func (r *Renderer) Update() error {
 	}
 	if inpututil.IsKeyJustPressed(ebiten.KeyR) {
 		r.LatestRenderState.RasterPrimary = !r.LatestRenderState.RasterPrimary
+	}
+	if inpututil.IsKeyJustPressed(ebiten.KeyO) {
+		r.LatestRenderState.Shadows = !r.LatestRenderState.Shadows
 	}
 	if inpututil.IsKeyJustPressed(ebiten.KeyF3) {
 		go func() {
@@ -627,7 +631,7 @@ func (r *Renderer) Draw(screen *ebiten.Image) {
 
 	// Draw info text
 	const x, y = 20, 20
-	infoText := fmt.Sprintf("fps=%f\ncurUpscaleFactor=%f\ncurSupersampling=%d\nrasterPrimary=%v\ncursor=%d,%d", 1.0/drawDelta.Seconds(), r.curUpscaleFactor, r.curSupersampling, r.LatestRenderState.RasterPrimary, cursorX, cursorY)
+	infoText := fmt.Sprintf("fps=%f\ncurUpscaleFactor=%f\ncurSupersampling=%d\nrasterPrimary=%v\nshadows=%v\ncursor=%d,%d", 1.0/drawDelta.Seconds(), r.curUpscaleFactor, r.curSupersampling, r.LatestRenderState.RasterPrimary, r.LatestRenderState.Shadows, cursorX, cursorY)
 	w, h := text.Measure(infoText, r.uiNormalFace, r.uiNormalFace.Size*1.5)
 	vector.DrawFilledRect(screen, x, y, float32(w), float32(h), color.RGBA{0x80, 0x80, 0x80, 0xff}, false)
 	op := &text.DrawOptions{}
@@ -673,7 +677,7 @@ func (r *Renderer) renderFrame(rx, ry int) {
 					RGBPowerBuf:   make([]RGBPower, tileSizeX*tileSizeY),
 					CameraRays:    make([][4]float32, tileSizeX*tileSizeY*samples),
 					Supersampling: samples,
-					Vis:           NewVisBuffer(tileSrcX, tileSrcY, tileSrcX+tileSizeX, tileSrcY+tileSizeY, samples),
+					GBuf:          NewGBuffer(tileSrcX, tileSrcY, tileSrcX+tileSizeX, tileSrcY+tileSizeY, samples),
 				}
 
 				// Build the pinhole camera rays for this tile, samples per
@@ -865,6 +869,11 @@ type RenderState struct {
 	// If set, rasterization skips triangles facing away from the camera.
 	CullBackFaces bool
 
+	// If set, directional and point lights only light surfaces that can see
+	// them, as tested with shadow rays.  Otherwise, they light every surface
+	// facing them.
+	Shadows bool
+
 	// Rasterization setup for the current frame; see prepareRaster.
 	projection RasterProjection
 
@@ -882,22 +891,23 @@ func (r *RenderState) prepareRaster(rx, ry int) {
 	}
 }
 
-// rasterizeTile fills tile.Vis with the nearest triangle under each of the
+// rasterizeTile fills tile.GBuf with the nearest surface under each of the
 // tile's camera rays.  Only the triangles in BVH nodes overlapping the tile's
 // frustum are rasterized.
 func (r *RenderState) rasterizeTile(tile *RenderTile) {
-	vb := tile.Vis
-	vb.Clear()
+	gb := tile.GBuf
+	gb.Clear()
 	stack := &tile.BVHStack
 	bvhStats := &tile.Stats.BVH
 
-	planes := rasterTilePlanes(&r.projection.WorldToClip, vb.SrcX, vb.SrcY, vb.LimX, vb.LimY)
+	planes := rasterTilePlanes(&r.projection.WorldToClip, gb.SrcX, gb.SrcY, gb.LimX, gb.LimY)
 	r.Tree.FrustumTest(planes[:], stack, bvhStats, func(instRef int) {
-		model := r.MeshInstances[instRef].Model
+		inst := &r.MeshInstances[instRef]
+		model := inst.Model
 		toClip := &r.instanceToClip[instRef]
 
 		// The same tile bounds, as planes in the instance's model space.
-		modelPlanes := rasterTilePlanes(toClip, vb.SrcX, vb.SrcY, vb.LimX, vb.LimY)
+		modelPlanes := rasterTilePlanes(toClip, gb.SrcX, gb.SrcY, gb.LimX, gb.LimY)
 		model.Tree.FrustumTest(modelPlanes[:], stack, bvhStats, func(triRef int) {
 			tv := &model.TriVerts[triRef]
 			clip := [3]fvec4.T{
@@ -905,10 +915,21 @@ func (r *RenderState) rasterizeTile(tile *RenderTile) {
 				fmat44.MulMV(*toClip, model.Vertices[tv[1]]),
 				fmat44.MulMV(*toClip, model.Vertices[tv[2]]),
 			}
-			vb.RasterizeTri(clip, r.CullBackFaces, VisHit{int32(instRef), int32(triRef)})
+			tri := &model.Tris[triRef]
+			attrs := RasterAttrs{
+				Normals: [3]fvec4.T{
+					inst.normalToWorld(tri.Ns[0]),
+					inst.normalToWorld(tri.Ns[1]),
+					inst.normalToWorld(tri.Ns[2]),
+				},
+				GeomNormal: inst.normalToWorld(fvec4.CProd3(tri.E1, tri.E2)),
+				UVs:        tri.UVs,
+				Diffuse:    model.Diffuse,
+			}
+			gb.RasterizeTri(clip, &attrs, r.CullBackFaces, VisHit{Inst: int32(instRef), Tri: int32(triRef)})
 		})
 	})
-	tile.Stats.Raster = vb.Stats
+	tile.Stats.Raster = gb.Stats
 }
 
 func (r *RenderState) RenderTile(tile *RenderTile, rx, ry int) {
@@ -935,7 +956,7 @@ func (r *RenderState) RenderTile(tile *RenderTile, rx, ry int) {
 				}
 				var p RGBPower
 				if r.RasterPrimary {
-					p = r.RenderRasterHit(ray, tile.Vis.Hits[pixelIndex*samples+s], &tile.BVHStack, &tile.Stats)
+					p = r.RenderGBufferSample(ray, cameraRay[0], tile.GBuf, pixelIndex*samples+s, &tile.BVHStack, &tile.Stats)
 				} else {
 					p = r.RenderRay(ray, &tile.BVHStack, &tile.Stats)
 				}
@@ -1003,23 +1024,32 @@ func (r *RenderState) RenderRay(ray Ray, stack *bvh.Stack, stats *RayStats) RGBP
 	return power
 }
 
-// RenderRasterHit is RenderRay for a primary ray whose first contact was
-// found by rasterization, as hit.
-func (r *RenderState) RenderRasterHit(ray Ray, hit VisHit, stack *bvh.Stack, stats *RayStats) RGBPower {
-	if hit == visHitNone {
-		stats.Rays++
+// RenderGBufferSample is RenderRay for a primary ray whose first contact was
+// found by rasterization, as sample i of gb.  eyeSlope is the component of
+// the ray's slope along the camera's eye axis.
+func (r *RenderState) RenderGBufferSample(ray Ray, eyeSlope float32, gb *GBuffer, i int, stack *bvh.Stack, stats *RayStats) RGBPower {
+	stats.Rays++
+	hit := gb.Hits[i]
+	if hit.Inst < 0 {
 		return missPower(ray)
 	}
-
-	contact, ok := r.MeshInstances[hit.Inst].TriContact(ray, int(hit.Tri))
-	if !ok {
-		// The ray grazes the triangle too closely to place the contact;
-		// fall back to raytracing it.
-		return r.RenderRay(ray, stack, stats)
-	}
-
-	stats.Rays++
 	stats.RayHits++
+
+	// The contact is at eye-axis depth W = 1/InvDepth.
+	t := 1 / (gb.InvDepth[i] * eyeSlope)
+	n := gb.Normals[i]
+	contact := Contact{
+		Mode:    ContactModeEnter,
+		ExitRay: ray,
+		T:       t,
+		P:       ray.Eval(t),
+		N:       fvec4.Normalize(fvec4.T{n[0], n[1], n[2], 0}),
+		Albedo:  gb.Albedos[i],
+	}
+	contact.P[3] = 0
+	if hit.Back {
+		contact.Mode = ContactModeExit
+	}
 	return r.matteShade(&contact, stack, stats)
 }
 
@@ -1062,8 +1092,9 @@ func (r *RenderState) Occluded(ray Ray, tLo, tHi float32, stack *bvh.Stack, stat
 	return occluded
 }
 
-// matteShade computes the diffuse light leaving contact.  Each directional and
-// point light only contributes if a shadow ray from the contact can reach it.
+// matteShade computes the diffuse light leaving contact.  With Shadows set,
+// each directional and point light only contributes if a shadow ray from the
+// contact can reach it.
 func (r *RenderState) matteShade(contact *Contact, stack *bvh.Stack, stats *RayStats) RGBPower {
 	totalPower := RGBPower{}
 
@@ -1081,8 +1112,11 @@ func (r *RenderState) matteShade(contact *Contact, stack *bvh.Stack, stats *RayS
 		dot := fvec4.IProd(contact.N, l.DirectionToSource)
 		// Directional lights are infinitely far away, so the shadow ray
 		// only reaches the light if it leaves the scene without a contact.
+		if dot <= 0.0 {
+			continue
+		}
 		shadowRay := Ray{Point: shadowOrigin, Slope: l.DirectionToSource}
-		if dot > 0.0 && !r.Occluded(shadowRay, 0, float32(math.Inf(1)), stack, stats) {
+		if !r.Shadows || !r.Occluded(shadowRay, 0, float32(math.Inf(1)), stack, stats) {
 			totalPower[0] += dot * l.Power[0]
 			totalPower[1] += dot * l.Power[1]
 			totalPower[2] += dot * l.Power[2]
@@ -1102,7 +1136,7 @@ func (r *RenderState) matteShade(contact *Contact, stack *bvh.Stack, stats *RayS
 
 		// A light too dim here to visibly change the pixel isn't worth a
 		// shadow ray; its contribution is added unshadowed.
-		lit := dot*falloff*max(l.Power[0], l.Power[1], l.Power[2]) < shadowCutoffPower
+		lit := !r.Shadows || dot*falloff*max(l.Power[0], l.Power[1], l.Power[2]) < shadowCutoffPower
 		if !lit {
 			// With the unnormalized slope, the light is at t = 1, so
 			// anything with t < 1 is between the contact and the light.
