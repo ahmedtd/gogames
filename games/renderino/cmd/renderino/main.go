@@ -14,6 +14,7 @@ import (
 	"image/color"
 	"log"
 	"math"
+	"math/bits"
 	"math/rand/v2"
 	"net/http"
 	_ "net/http/pprof"
@@ -128,6 +129,10 @@ type Renderer struct {
 	// amount of work the raytracer has to do.
 	curUpscaleFactor float64
 
+	// Number of primary rays traced per pixel, averaged to give the pixel's
+	// value.  Always at least 1.
+	curSupersampling int
+
 	renderGroup *errgroup.Group
 
 	// Model drawn for each boid.  Boid instances follow the
@@ -138,8 +143,9 @@ type Renderer struct {
 	TileSize int
 	tiles    []*RenderTile
 
-	// Resolution that tiles and buf were allocated for.
-	frameRX, frameRY int
+	// Resolution and supersampling that tiles and buf were allocated for.
+	frameRX, frameRY   int
+	frameSupersampling int
 
 	// Work done raytracing the most recent frame, summed over all tiles.
 	FrameStats RayStats
@@ -169,8 +175,12 @@ type RenderTile struct {
 	BVHStack bvh.Stack
 
 	// Size (LimX-SrcX)*(LimY-SrcY)
-	IndexBuf   [][4]float32
-	CameraRays [][4]float32
+	IndexBuf [][4]float32
+
+	// Size (LimX-SrcX)*(LimY-SrcY)*Supersampling.  The rays for each pixel
+	// are contiguous.
+	CameraRays    [][4]float32
+	Supersampling int
 }
 
 var _ ebiten.Game = &Renderer{}
@@ -307,6 +317,7 @@ func newHeadlessRenderer(numRenderThreads int) (*Renderer, error) {
 
 	r := &Renderer{
 		curUpscaleFactor: 1.0,
+		curSupersampling: 1,
 
 		renderGroup: renderGroup,
 
@@ -354,6 +365,12 @@ func (r *Renderer) Update() error {
 	}
 	if inpututil.IsKeyJustPressed(ebiten.KeyEqual) {
 		r.curUpscaleFactor += 0.25
+	}
+	if inpututil.IsKeyJustPressed(ebiten.Key8) {
+		r.curSupersampling = max(r.curSupersampling-1, 1)
+	}
+	if inpututil.IsKeyJustPressed(ebiten.Key9) {
+		r.curSupersampling++
 	}
 	if inpututil.IsKeyJustPressed(ebiten.KeyF3) {
 		go func() {
@@ -600,7 +617,7 @@ func (r *Renderer) Draw(screen *ebiten.Image) {
 
 	// Draw info text
 	const x, y = 20, 20
-	infoText := fmt.Sprintf("fps=%f\ncurUpscaleFactor=%f\ncursor=%d,%d", 1.0/drawDelta.Seconds(), r.curUpscaleFactor, cursorX, cursorY)
+	infoText := fmt.Sprintf("fps=%f\ncurUpscaleFactor=%f\ncurSupersampling=%d\ncursor=%d,%d", 1.0/drawDelta.Seconds(), r.curUpscaleFactor, r.curSupersampling, cursorX, cursorY)
 	w, h := text.Measure(infoText, r.uiNormalFace, r.uiNormalFace.Size*1.5)
 	vector.DrawFilledRect(screen, x, y, float32(w), float32(h), color.RGBA{0x80, 0x80, 0x80, 0xff}, false)
 	op := &text.DrawOptions{}
@@ -622,8 +639,11 @@ func (r *Renderer) renderFrame(rx, ry int) {
 	r.LatestRenderState.Camera.Aperture[1] = fmath.Sin(40.0 / 180.0 * 2.0 * fmath.Pi)
 	r.LatestRenderState.Camera.Aperture[2] = r.LatestRenderState.Camera.Aperture[1] / float32(rx) * float32(ry)
 
-	if r.tiles == nil || r.frameRX != rx || r.frameRY != ry {
+	samples := max(r.curSupersampling, 1)
+
+	if r.tiles == nil || r.frameRX != rx || r.frameRY != ry || r.frameSupersampling != samples {
 		r.frameRX, r.frameRY = rx, ry
+		r.frameSupersampling = samples
 		r.buf = make([]byte, rx*ry*4)
 
 		r.tiles = []*RenderTile{}
@@ -638,27 +658,32 @@ func (r *Renderer) renderFrame(rx, ry int) {
 					tileSizeY = ry - tileSrcY
 				}
 				tile := &RenderTile{
-					SrcX:        tileSrcX,
-					SrcY:        tileSrcY,
-					LimX:        tileSrcX + tileSizeX,
-					LimY:        tileSrcY + tileSizeY,
-					RGBPowerBuf: make([]RGBPower, tileSizeX*tileSizeY),
-					CameraRays:  make([][4]float32, tileSizeX*tileSizeY),
+					SrcX:          tileSrcX,
+					SrcY:          tileSrcY,
+					LimX:          tileSrcX + tileSizeX,
+					LimY:          tileSrcY + tileSizeY,
+					RGBPowerBuf:   make([]RGBPower, tileSizeX*tileSizeY),
+					CameraRays:    make([][4]float32, tileSizeX*tileSizeY*samples),
+					Supersampling: samples,
 				}
 
-				// Build the pinhole camera rays for this tile.
+				// Build the pinhole camera rays for this tile, samples per
+				// pixel, spread across the pixel by supersampleOffset.
 				for py := tile.SrcY; py < tile.LimY; py++ {
 					ty := py - tile.SrcY
 					for px := tile.SrcX; px < tile.LimX; px++ {
 						tx := px - tile.SrcX
+						for s := 0; s < samples; s++ {
+							ox, oy := supersampleOffset(s, samples)
 
-						apertureCoords := fvec4.T{
-							r.LatestRenderState.Camera.Aperture[0],
-							(1.0 - 2.0*float32(px)/float32(rx)) * r.LatestRenderState.Camera.Aperture[1],
-							(1.0 - 2.0*float32(py)/float32(ry)) * r.LatestRenderState.Camera.Aperture[2],
+							apertureCoords := fvec4.T{
+								r.LatestRenderState.Camera.Aperture[0],
+								(1.0 - 2.0*(float32(px)+ox)/float32(rx)) * r.LatestRenderState.Camera.Aperture[1],
+								(1.0 - 2.0*(float32(py)+oy)/float32(ry)) * r.LatestRenderState.Camera.Aperture[2],
+							}
+
+							tile.CameraRays[(ty*tileSizeX+tx)*samples+s] = fvec4.Normalize(apertureCoords)
 						}
-
-						tile.CameraRays[ty*tileSizeX+tx] = fvec4.Normalize(apertureCoords)
 					}
 				}
 
@@ -734,6 +759,22 @@ func (r *Renderer) renderFrame(rx, ry int) {
 	if err := r.renderGroup.Wait(); err != nil {
 		log.Printf("Error while converting render output: %v", err)
 	}
+}
+
+// supersampleOffset returns where, within a pixel, sample i of n lies, as
+// offsets in [0, 1) from the pixel's top-left corner.  The samples form a
+// Hammersley set (shifted so a lone sample sits at the pixel center), which
+// spreads them evenly over the pixel in both directions for any n.  The
+// pattern is fixed, so there's no frame-to-frame noise.
+func supersampleOffset(i, n int) (float32, float32) {
+	halfStep := 0.5 / float32(n)
+	return float32(i)/float32(n) + halfStep, radicalInverse2(uint32(i)) + halfStep
+}
+
+// radicalInverse2 mirrors the base-2 digits of i about the binary point,
+// giving a value in [0, 1).
+func radicalInverse2(i uint32) float32 {
+	return float32(bits.Reverse32(i)) * 0x1p-32
 }
 
 func (r *Renderer) Layout(outsideWidth, outsideHeight int) (int, int) {
@@ -818,20 +859,28 @@ type RenderState struct {
 
 func (r *RenderState) RenderTile(tile *RenderTile, rx, ry int) {
 	tileSizeX := tile.LimX - tile.SrcX
+	samples := tile.Supersampling
+	sampleWeight := 1 / float32(samples)
 	tile.Stats = RayStats{}
 
 	for py := tile.SrcY; py < tile.LimY; py++ {
 		ty := py - tile.SrcY
 		for px := tile.SrcX; px < tile.LimX; px++ {
 			tx := px - tile.SrcX
+			pixelIndex := ty*tileSizeX + tx
 
-			raySlope := fmat44.MulMV(r.Camera.ApertureToWorld, tile.CameraRays[ty*tileSizeX+tx])
-
-			ray := Ray{
-				Point: r.Camera.Center,
-				Slope: raySlope,
+			var sum RGBPower
+			for _, cameraRay := range tile.CameraRays[pixelIndex*samples : (pixelIndex+1)*samples] {
+				ray := Ray{
+					Point: r.Camera.Center,
+					Slope: fmat44.MulMV(r.Camera.ApertureToWorld, cameraRay),
+				}
+				p := r.RenderRay(ray, &tile.BVHStack, &tile.Stats)
+				sum[0] += p[0]
+				sum[1] += p[1]
+				sum[2] += p[2]
 			}
-			tile.RGBPowerBuf[ty*tileSizeX+tx] = r.RenderRay(ray, &tile.BVHStack, &tile.Stats)
+			tile.RGBPowerBuf[pixelIndex] = RGBPower{sum[0] * sampleWeight, sum[1] * sampleWeight, sum[2] * sampleWeight}
 		}
 	}
 }
