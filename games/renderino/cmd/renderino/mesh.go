@@ -2,6 +2,7 @@ package main
 
 import (
 	"math"
+	"math/bits"
 
 	"github.com/ahmedtd/gogames/games/renderino/internal/bvh"
 	"github.com/ahmedtd/gogames/lib/graphics/renderable3"
@@ -18,6 +19,10 @@ import (
 type MeshModel struct {
 	Tris []MeshTri
 	Tree *bvh.Tree
+
+	// The triangles of each of Tree's leaves, gathered into one packet per
+	// leaf: a leaf's ref indexes Packets.
+	Packets []TriPacket
 
 	// Model-space vertex positions (with w = 1), and the indices of each
 	// triangle's vertices in Tris order.  Rasterization works from these
@@ -44,11 +49,57 @@ type MeshTri struct {
 	UVs [3]fvec2.T
 }
 
+// TriPacket holds up to triPacketSize triangles in struct-of-arrays form --
+// one lane per triangle -- so that a ray can be tested against all of them at
+// once.  Each lane holds its triangle's first vertex and the edges from it to
+// the other two, as in MeshTri.
+//
+// Unused lanes hold a degenerate triangle at the origin with zero-length
+// edges, which a ray can never hit: Möller-Trumbore's determinant is zero,
+// and the barycentric coordinates come out NaN.
+type TriPacket struct {
+	V0X, V0Y, V0Z [triPacketSize]float32
+	E1X, E1Y, E1Z [triPacketSize]float32
+	E2X, E2Y, E2Z [triPacketSize]float32
+
+	// The index into MeshModel.Tris of each lane's triangle.  Only the first
+	// N are valid.
+	Tris [triPacketSize]int32
+	N    int32
+}
+
+// triPacketSize is the number of triangles in a TriPacket, matching the
+// SIMD register width used by TriPacket.RayIntersect (Float32x4 -- 4 lanes).
+//
+// 8 lanes (Float32x8) was tried, and rendered slower: leaves of 8 triangles
+// bound them so loosely that a ray tested over twice as many triangles, and
+// the rasterizer drew a fifth more.
+const triPacketSize = 4
+
+// rayIntersectLanes is TriPacket.RayIntersect done one lane at a time, with
+// MeshTri.RayIntersect.
+func (p *TriPacket) rayIntersectLanes(point, slope fvec4.T, queryLo, queryHi float32, t, b1, b2 *[triPacketSize]float32) uint8 {
+	var mask uint8
+	for i := range int(p.N) {
+		tri := MeshTri{
+			V0: fvec4.T{p.V0X[i], p.V0Y[i], p.V0Z[i], 0},
+			E1: fvec4.T{p.E1X[i], p.E1Y[i], p.E1Z[i], 0},
+			E2: fvec4.T{p.E2X[i], p.E2Y[i], p.E2Z[i], 0},
+		}
+		var ok bool
+		t[i], b1[i], b2[i], ok = tri.RayIntersect(point, slope, queryLo, queryHi)
+		if ok {
+			mask |= 1 << i
+		}
+	}
+	return mask
+}
+
 // NewMeshModel converts a renderable3 mesh into a MeshModel, building its BVH.
 func NewMeshModel(mesh *renderable3.T) *MeshModel {
 	m := &MeshModel{
 		Tris:     make([]MeshTri, len(mesh.Tris)),
-		Tree:     &bvh.Tree{},
+		Tree:     &bvh.Tree{LeafSize: triPacketSize},
 		Vertices: make([]fvec4.T, len(mesh.Vertices)),
 		TriVerts: make([][3]int32, len(mesh.Tris)),
 		Diffuse:  mesh.Diffuse,
@@ -106,6 +157,19 @@ func NewMeshModel(mesh *renderable3.T) *MeshModel {
 	}
 
 	m.Tree.BuildFromElements(nodes)
+
+	m.Packets = make([]TriPacket, len(m.Tree.LeafGroups))
+	for g, group := range m.Tree.LeafGroups {
+		p := &m.Packets[g]
+		p.N = int32(len(group))
+		for lane, ref := range group {
+			tri := &m.Tris[ref]
+			p.V0X[lane], p.V0Y[lane], p.V0Z[lane] = tri.V0[0], tri.V0[1], tri.V0[2]
+			p.E1X[lane], p.E1Y[lane], p.E1Z[lane] = tri.E1[0], tri.E1[1], tri.E1[2]
+			p.E2X[lane], p.E2Y[lane], p.E2Z[lane] = tri.E2[0], tri.E2[1], tri.E2[2]
+			p.Tris[lane] = int32(ref)
+		}
+	}
 
 	return m
 }
@@ -225,7 +289,7 @@ func (m *MeshInstance) RayContact(ray Ray, queryLo, queryHi float32, stack *bvh.
 	modelPoint[3] = 0
 	modelSlope := fmat44.MulMV(m.worldToModel, fvec4.T{ray.Slope[0], ray.Slope[1], ray.Slope[2], 0})
 
-	tris := m.Model.Tris
+	packets := m.Model.Packets
 	hitRef := -1
 	var hitT, hitB1, hitB2 float32
 	hitT = queryHi
@@ -235,10 +299,16 @@ func (m *MeshInstance) RayContact(ray Ray, queryLo, queryHi float32, stack *bvh.
 	}
 	var triTests int64
 	m.Model.Tree.RayTest(modelPoint, modelSlope, queryLo, queryHi, stack, bvhStats, func(ref int) float32 {
-		triTests++
-		t, b1, b2, ok := tris[ref].RayIntersect(modelPoint, modelSlope, queryLo, hitT)
-		if ok {
-			hitRef, hitT, hitB1, hitB2 = ref, t, b1, b2
+		p := &packets[ref]
+		triTests += int64(p.N)
+		var t, b1, b2 [triPacketSize]float32
+		hits := p.RayIntersect(modelPoint, modelSlope, queryLo, hitT, &t, &b1, &b2)
+		for hits != 0 {
+			i := bits.TrailingZeros8(hits)
+			hits &= hits - 1
+			if t[i] < hitT {
+				hitRef, hitT, hitB1, hitB2 = int(p.Tris[i]), t[i], b1[i], b2[i]
+			}
 		}
 		return hitT
 	})
@@ -312,7 +382,7 @@ func (m *MeshInstance) RayOccluded(ray Ray, queryLo, queryHi float32, stack *bvh
 	modelPoint[3] = 0
 	modelSlope := fmat44.MulMV(m.worldToModel, fvec4.T{ray.Slope[0], ray.Slope[1], ray.Slope[2], 0})
 
-	tris := m.Model.Tris
+	packets := m.Model.Packets
 	hit := false
 	var bvhStats *bvh.Stats
 	if stats != nil {
@@ -320,8 +390,10 @@ func (m *MeshInstance) RayOccluded(ray Ray, queryLo, queryHi float32, stack *bvh
 	}
 	var triTests int64
 	m.Model.Tree.RayTestUnordered(modelPoint, modelSlope, queryLo, queryHi, stack, bvhStats, func(ref int) float32 {
-		triTests++
-		if _, _, _, ok := tris[ref].RayIntersect(modelPoint, modelSlope, queryLo, queryHi); ok {
+		p := &packets[ref]
+		triTests += int64(p.N)
+		var t, b1, b2 [triPacketSize]float32
+		if p.RayIntersect(modelPoint, modelSlope, queryLo, queryHi, &t, &b1, &b2) != 0 {
 			hit = true
 			// A bound below queryLo prunes the rest of the traversal.
 			return float32(math.Inf(-1))

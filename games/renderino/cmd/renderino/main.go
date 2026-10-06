@@ -909,25 +909,28 @@ func (r *RenderState) rasterizeTile(tile *RenderTile) {
 
 		// The same tile bounds, as planes in the instance's model space.
 		modelPlanes := rasterTilePlanes(toClip, gb.SrcX, gb.SrcY, gb.LimX, gb.LimY)
-		model.Tree.FrustumTest(modelPlanes[:], stack, bvhStats, func(triRef int) {
-			tv := &model.TriVerts[triRef]
-			clip := [3]fvec4.T{
-				fmat44.MulMV(*toClip, model.Vertices[tv[0]]),
-				fmat44.MulMV(*toClip, model.Vertices[tv[1]]),
-				fmat44.MulMV(*toClip, model.Vertices[tv[2]]),
+		model.Tree.FrustumTest(modelPlanes[:], stack, bvhStats, func(packetRef int) {
+			p := &model.Packets[packetRef]
+			for _, triRef := range p.Tris[:p.N] {
+				tv := &model.TriVerts[triRef]
+				clip := [3]fvec4.T{
+					fmat44.MulMV(*toClip, model.Vertices[tv[0]]),
+					fmat44.MulMV(*toClip, model.Vertices[tv[1]]),
+					fmat44.MulMV(*toClip, model.Vertices[tv[2]]),
+				}
+				tri := &model.Tris[triRef]
+				attrs := RasterAttrs{
+					Normals: [3]fvec4.T{
+						inst.normalToWorld(tri.Ns[0]),
+						inst.normalToWorld(tri.Ns[1]),
+						inst.normalToWorld(tri.Ns[2]),
+					},
+					GeomNormal: inst.normalToWorld(fvec4.CProd3(tri.E1, tri.E2)),
+					UVs:        tri.UVs,
+					Diffuse:    model.Diffuse,
+				}
+				gb.RasterizeTri(clip, &attrs, r.CullBackFaces, VisHit{Inst: int32(instRef), Tri: triRef})
 			}
-			tri := &model.Tris[triRef]
-			attrs := RasterAttrs{
-				Normals: [3]fvec4.T{
-					inst.normalToWorld(tri.Ns[0]),
-					inst.normalToWorld(tri.Ns[1]),
-					inst.normalToWorld(tri.Ns[2]),
-				},
-				GeomNormal: inst.normalToWorld(fvec4.CProd3(tri.E1, tri.E2)),
-				UVs:        tri.UVs,
-				Diffuse:    model.Diffuse,
-			}
-			gb.RasterizeTri(clip, &attrs, r.CullBackFaces, VisHit{Inst: int32(instRef), Tri: int32(triRef)})
 		})
 	})
 	tile.Stats.Raster = gb.Stats
