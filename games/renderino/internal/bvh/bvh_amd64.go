@@ -75,6 +75,20 @@ func (t *Tree) GetFreeNode() *Node {
 // The traversal's work stack is kept in stack, which may be nil to use a
 // temporary one.  The work done is added into stats, which may be nil.
 func (t *Tree) RayTest(point, slope fvec4.T, tLo, tHi float32, stack *Stack, stats *Stats, checkRef func(ref int) float32) {
+	t.rayTest(point, slope, tLo, tHi, stack, stats, true, checkRef)
+}
+
+// RayTestUnordered is RayTest without the nearest-first ordering: a node's
+// hit children are visited in whatever order is cheapest.  That suits
+// any-hit queries (e.g. shadow rays), where checkRef stops the traversal at
+// the first hit by returning a bound below tLo, and sorting children by
+// distance would be wasted work.
+func (t *Tree) RayTestUnordered(point, slope fvec4.T, tLo, tHi float32, stack *Stack, stats *Stats, checkRef func(ref int) float32) {
+	t.rayTest(point, slope, tLo, tHi, stack, stats, false, checkRef)
+}
+
+// rayTest implements RayTest (ordered set) and RayTestUnordered.
+func (t *Tree) rayTest(point, slope fvec4.T, tLo, tHi float32, stack *Stack, stats *Stats, ordered bool, checkRef func(ref int) float32) {
 	if t.Root == nil {
 		return
 	}
@@ -145,6 +159,15 @@ func (t *Tree) RayTest(point, slope fvec4.T, tLo, tHi float32, stack *Stack, sta
 			)
 			// Padding lanes beyond NumChildren hold garbage; mask them off.
 			hitMask &= uint8(1<<node.NumChildren) - 1
+
+			if !ordered {
+				for hitMask != 0 {
+					i := bits.TrailingZeros8(hitMask)
+					hitMask &= hitMask - 1
+					workStack = append(workStack, rayTestEntry{node: node.Children[i], tEnter: tEnter[i]})
+				}
+				continue
+			}
 
 			// Order the hit children far-to-near, so that pushing them in
 			// that order leaves the nearest on top of the stack.

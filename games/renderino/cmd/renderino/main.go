@@ -1082,7 +1082,7 @@ const shadowCutoffPower = 4.0 / 256
 func (r *RenderState) Occluded(ray Ray, tLo, tHi float32, stack *bvh.Stack, stats *RayStats) bool {
 	stats.ShadowRays++
 	occluded := false
-	r.Tree.RayTest(ray.Point, ray.Slope, tLo, tHi, stack, &stats.BVH, func(ref int) float32 {
+	r.Tree.RayTestUnordered(ray.Point, ray.Slope, tLo, tHi, stack, &stats.BVH, func(ref int) float32 {
 		if r.MeshInstances[ref].RayOccluded(ray, tLo, tHi, stack, stats) {
 			occluded = true
 			// A bound below tLo prunes the rest of the traversal.

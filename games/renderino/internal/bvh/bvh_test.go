@@ -14,8 +14,8 @@ var (
 	posInf = float32(math.Inf(1))
 )
 
-// TestBVHRayTestMatchesBruteForce checks that Tree.RayTest reports exactly
-// the same set of candidate boxes as a brute-force linear scan over every
+// TestBVHRayTestMatchesBruteForce checks that Tree.RayTest and
+// Tree.RayTestUnordered each report exactly the same set of candidate boxes as a brute-force linear scan over every
 // leaf actually present in the tree, across many randomly-generated scenes
 // and rays.  This is the main correctness guard for the wide (4-ary) BVH
 // layout: a bug in the struct-of-arrays child bounds, the hit-mask handling,
@@ -31,18 +31,26 @@ func TestBVHRayTestMatchesBruteForce(t *testing.T) {
 		for q := 0; q < 200; q++ {
 			ray := randomRay(rng, sceneExtent)
 
-			var gotHits []int
-			tree.RayTest(ray.Point, ray.Slope, negInf, posInf, nil, nil, func(ref int) float32 {
-				gotHits = append(gotHits, ref)
-				return posInf
-			})
-			slices.Sort(gotHits)
-
 			wantHits := bruteForceRayTest(tree, numBoxes, ray)
 			slices.Sort(wantHits)
 
-			if !slices.Equal(gotHits, wantHits) {
-				t.Fatalf("numBoxes=%d query=%d: Tree.RayTest = %v, want %v", numBoxes, q, gotHits, wantHits)
+			for _, method := range []struct {
+				name    string
+				rayTest func(point, slope fvec4.T, tLo, tHi float32, stack *Stack, stats *Stats, checkRef func(ref int) float32)
+			}{
+				{"RayTest", tree.RayTest},
+				{"RayTestUnordered", tree.RayTestUnordered},
+			} {
+				var gotHits []int
+				method.rayTest(ray.Point, ray.Slope, negInf, posInf, nil, nil, func(ref int) float32 {
+					gotHits = append(gotHits, ref)
+					return posInf
+				})
+				slices.Sort(gotHits)
+
+				if !slices.Equal(gotHits, wantHits) {
+					t.Fatalf("numBoxes=%d query=%d: Tree.%s = %v, want %v", numBoxes, q, method.name, gotHits, wantHits)
+				}
 			}
 		}
 	}

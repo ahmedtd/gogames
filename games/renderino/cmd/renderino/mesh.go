@@ -319,7 +319,7 @@ func (m *MeshInstance) RayOccluded(ray Ray, queryLo, queryHi float32, stack *bvh
 		bvhStats = &stats.BVH
 	}
 	var triTests int64
-	m.Model.Tree.RayTest(modelPoint, modelSlope, queryLo, queryHi, stack, bvhStats, func(ref int) float32 {
+	m.Model.Tree.RayTestUnordered(modelPoint, modelSlope, queryLo, queryHi, stack, bvhStats, func(ref int) float32 {
 		triTests++
 		if _, _, _, ok := tris[ref].RayIntersect(modelPoint, modelSlope, queryLo, queryHi); ok {
 			hit = true
