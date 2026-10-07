@@ -242,13 +242,13 @@ func newHeadlessRenderer(numRenderThreads int) (*Renderer, error) {
 		ballistas = append(ballistas, NewMeshInstance(ballistaModel, modelToWorld))
 	}
 
-	floorMesh, err := kenneyprototypekit.Load("floor-square", true)
+	floorMesh, err := kenneyprototypekit.Load("floor-square")
 	if err != nil {
 		return nil, fmt.Errorf("while loading floor mesh: %w", err)
 	}
 	floorModel := NewMeshModel(floorMesh)
 
-	dogMesh, err := kenneyprototypekit.Load("animal-dog", true)
+	dogMesh, err := kenneyprototypekit.Load("animal-dog")
 	if err != nil {
 		return nil, fmt.Errorf("while loading animal-dog mesh: %w", err)
 	}

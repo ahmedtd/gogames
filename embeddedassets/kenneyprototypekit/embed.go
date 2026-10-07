@@ -8,12 +8,12 @@ import (
 	"io/fs"
 	"strings"
 
+	"github.com/ahmedtd/gogames/lib/gltfloader"
 	"github.com/ahmedtd/gogames/lib/graphics/renderable3"
-	"github.com/ahmedtd/gogames/lib/objloader"
 )
 
-//go:embed *.obj
-var OBJFS embed.FS
+//go:embed *.glb
+var GLBFS embed.FS
 
 //go:embed Textures/colormap.png
 var TextureBytes []byte
@@ -21,44 +21,30 @@ var TextureBytes []byte
 // Names returns the names of all models in the kit, suitable for passing to
 // Load.  (For example, "crate" or "wall-doorway".)
 func Names() []string {
-	entries, err := fs.ReadDir(OBJFS, ".")
+	entries, err := fs.ReadDir(GLBFS, ".")
 	if err != nil {
-		panic(fmt.Sprintf("while reading embedded OBJ directory: %v", err))
+		panic(fmt.Sprintf("while reading embedded GLB directory: %v", err))
 	}
 	names := make([]string, 0, len(entries))
 	for _, e := range entries {
-		names = append(names, strings.TrimSuffix(e.Name(), ".obj"))
+		names = append(names, strings.TrimSuffix(e.Name(), ".glb"))
 	}
 	return names
 }
 
 // Load loads the named model mesh and its diffuse texture.  The name is the
-// OBJ filename without the extension; see Names.
+// GLB filename without the extension; see Names.
 //
-// The OBJ is Y-up, and is converted to Z-up while parsing.  That conversion
-// leaves the model upside down in a right-handed Z-up world, so flipZ rotates
-// it 180 degrees about the X axis to stand it upright.  (Y is negated along
-// with Z so that the model isn't mirrored.)
-func Load(name string, flipZ bool) (*renderable3.T, error) {
-	objBytes, err := OBJFS.ReadFile(name + ".obj")
+// The GLB is Y-up, and is rotated to be Z-up.
+func Load(name string) (*renderable3.T, error) {
+	glbBytes, err := GLBFS.ReadFile(name + ".glb")
 	if err != nil {
-		return nil, fmt.Errorf("while reading OBJ for %q: %w", name, err)
+		return nil, fmt.Errorf("while reading GLB for %q: %w", name, err)
 	}
 
-	mesh, err := objloader.Parse(objBytes, true)
+	mesh, err := gltfloader.ParseGLB(glbBytes, true)
 	if err != nil {
-		return nil, fmt.Errorf("while parsing OBJ for %q: %w", name, err)
-	}
-
-	if flipZ {
-		for i := range mesh.Vertices {
-			mesh.Vertices[i][1] = -mesh.Vertices[i][1]
-			mesh.Vertices[i][2] = -mesh.Vertices[i][2]
-		}
-		for i := range mesh.Normals {
-			mesh.Normals[i][1] = -mesh.Normals[i][1]
-			mesh.Normals[i][2] = -mesh.Normals[i][2]
-		}
+		return nil, fmt.Errorf("while parsing GLB for %q: %w", name, err)
 	}
 
 	diffuseImage, err := png.Decode(bytes.NewBuffer(TextureBytes))
@@ -73,9 +59,10 @@ func Load(name string, flipZ bool) (*renderable3.T, error) {
 	}
 	renderable.Tris = make([]renderable3.Tri, len(mesh.Tris))
 	for i := range mesh.Tris {
-		renderable.Tris[i].VertexIndices = mesh.Tris[i].VertexIndices
-		renderable.Tris[i].TextureIndices = mesh.Tris[i].TextureIndices
-		renderable.Tris[i].NormalIndices = mesh.Tris[i].NormalIndices
+		// glTF shares one index across all of a vertex's attributes.
+		renderable.Tris[i].VertexIndices = mesh.Tris[i]
+		renderable.Tris[i].TextureIndices = mesh.Tris[i]
+		renderable.Tris[i].NormalIndices = mesh.Tris[i]
 	}
 
 	renderable.Diffuse = &renderable3.UncompressedImage{

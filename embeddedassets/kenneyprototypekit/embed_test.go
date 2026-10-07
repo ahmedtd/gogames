@@ -8,7 +8,7 @@ func TestLoadAll(t *testing.T) {
 		t.Fatalf("no models embedded")
 	}
 	for _, name := range names {
-		r, err := Load(name, true)
+		r, err := Load(name)
 		if err != nil {
 			t.Errorf("Load(%q): %v", name, err)
 			continue
