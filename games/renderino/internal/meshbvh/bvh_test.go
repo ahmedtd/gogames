@@ -14,148 +14,170 @@ var (
 	posInf = float32(math.Inf(1))
 )
 
-// TestBVHRayTestMatchesBruteForce checks that Tree.RayTest and
-// Tree.RayTestUnordered each report exactly the same set of candidate boxes as a brute-force linear scan over every
-// leaf actually present in the tree, across many randomly-generated scenes
-// and rays.  This is the main correctness guard for the wide (4-ary) BVH
-// layout: a bug in the struct-of-arrays child bounds, the hit-mask handling,
-// or the tree assembly would show up here as a mismatched hit set long
-// before it'd be visible from rendered output.
+// aimedRay makes a ray from outside the scene aimed at the centroid of a
+// random triangle of tree, so that most queries hit something.
+func aimedRay(rng *rand.Rand, tree *Tree, sceneExtent float32) testRay {
+	tri := &tree.triangles[rng.IntN(len(tree.triangles))]
+	target := fvec4.AddVV(tri.V0, fvec4.MulVS(fvec4.AddVV(tri.E1, tri.E2), 1.0/3))
+	ray := randomRay(rng, sceneExtent)
+	ray.Slope = fvec4.Normalize(fvec4.SubVV(target, ray.Point))
+	return ray
+}
+
+// bruteForceRayTest tests ray against every triangle of tree, returning the
+// nearest hit with tLo < t < tHi.
+func bruteForceRayTest(tree *Tree, ray testRay, tLo, tHi float32) (Hit, bool) {
+	hit := Hit{Ref: -1, T: tHi}
+	for ref := range tree.triangles {
+		if t, b1, b2, ok := tree.triangles[ref].RayIntersect(ray.Point, ray.Slope, tLo, hit.T); ok {
+			hit = Hit{Ref: ref, T: t, B1: b1, B2: b2}
+		}
+	}
+	return hit, hit.Ref != -1
+}
+
+// TestBVHRayTestMatchesBruteForce checks that Tree.RayTest finds the same
+// nearest hit as a brute-force scan over every triangle, and that
+// Tree.RayOccluded agrees on whether there's any hit, across many
+// randomly-generated scenes and rays.  This is the main correctness guard
+// for the wide (4-ary) BVH layout: a bug in the struct-of-arrays child
+// bounds, the hit-mask handling, the interval culling, or the tree assembly
+// would show up here as a missed or farther hit.
 func TestBVHRayTestMatchesBruteForce(t *testing.T) {
 	const sceneExtent = 1000.0
 
-	for _, numBoxes := range []int{1, 2, 3, 4, 5, 8, 17, 100, 977} {
-		rng := rand.New(rand.NewPCG(1, uint64(numBoxes)))
-		tree := buildRandomBVH(rng, numBoxes, sceneExtent)
+	for _, numTris := range []int{1, 2, 3, 4, 5, 8, 17, 100, 977, 10_000} {
+		rng := rand.New(rand.NewPCG(1, uint64(numTris)))
+		tree := buildRandomBVH(rng, numTris, sceneExtent)
 
+		numHits := 0
 		for q := 0; q < 200; q++ {
 			ray := randomRay(rng, sceneExtent)
+			if q%2 == 0 {
+				ray = aimedRay(rng, tree, sceneExtent)
+			}
 
-			wantHits := bruteForceRayTest(tree, numBoxes, ray)
-			slices.Sort(wantHits)
-
-			for _, method := range []struct {
-				name    string
-				rayTest func(point, slope fvec4.T, tLo, tHi float32, stack *Stack, stats *Stats, checkRef func(ref int) float32)
-			}{
-				{"RayTest", tree.RayTest},
-				{"RayTestUnordered", tree.RayTestUnordered},
-			} {
-				var gotHits []int
-				method.rayTest(ray.Point, ray.Slope, negInf, posInf, nil, nil, func(ref int) float32 {
-					gotHits = append(gotHits, ref)
-					return posInf
-				})
-				slices.Sort(gotHits)
-
-				if !slices.Equal(gotHits, wantHits) {
-					t.Fatalf("numBoxes=%d query=%d: Tree.%s = %v, want %v", numBoxes, q, method.name, gotHits, wantHits)
+			// Sometimes cut the query short of the nearest hit, so that
+			// the next one (if any) is found instead.
+			tLo, tHi := float32(0), posInf
+			if q%3 == 0 {
+				if want, ok := bruteForceRayTest(tree, ray, tLo, tHi); ok {
+					tLo = want.T
 				}
 			}
-		}
-	}
-}
 
-// bruteForceRayTest walks every leaf actually present in tree and
-// slab-tests it directly against ray, independent of however Tree.RayTest
-// internally descends -- the correctness oracle for
-// TestBVHRayTestMatchesBruteForce.
-func bruteForceRayTest(tree *Tree, numBoxes int, ray testRay) []int {
-	inverseSlope := [3]float32{
-		1.0 / ray.Slope[0],
-		1.0 / ray.Slope[1],
-		1.0 / ray.Slope[2],
-	}
-
-	var hits []int
-	var walk func(node *Node)
-	walk = func(node *Node) {
-		if node == nil {
-			return
-		}
-		if node.Type == NodeTypeConcrete {
-			lo := node.Lo
-			hi := node.Hi
-
-			tx1 := (lo[0] - ray.Point[0]) * inverseSlope[0]
-			tx2 := (hi[0] - ray.Point[0]) * inverseSlope[0]
-			tMin := min(tx1, tx2)
-			tMax := max(tx1, tx2)
-
-			ty1 := (lo[1] - ray.Point[1]) * inverseSlope[1]
-			ty2 := (hi[1] - ray.Point[1]) * inverseSlope[1]
-			tMin = max(tMin, min(ty1, ty2))
-			tMax = min(tMax, max(ty1, ty2))
-
-			tz1 := (lo[2] - ray.Point[2]) * inverseSlope[2]
-			tz2 := (hi[2] - ray.Point[2]) * inverseSlope[2]
-			tMin = max(tMin, min(tz1, tz2))
-			tMax = min(tMax, max(tz1, tz2))
-
-			if tMin <= tMax {
-				hits = append(hits, node.Ref)
+			want, wantOK := bruteForceRayTest(tree, ray, tLo, tHi)
+			got, gotOK := tree.RayTest(ray.Point, ray.Slope, tLo, tHi, nil, nil)
+			if gotOK != wantOK {
+				t.Fatalf("numTris=%d query=%d: RayTest hit = %v, want %v", numTris, q, gotOK, wantOK)
 			}
-			return
+			if wantOK {
+				numHits++
+				// Ties may be broken differently, so check that the
+				// reported triangle really gives the reported hit.
+				tt, b1, b2, ok := tree.triangles[got.Ref].RayIntersect(ray.Point, ray.Slope, tLo, tHi)
+				if !ok || got.T != want.T || tt != got.T || b1 != got.B1 || b2 != got.B2 {
+					t.Fatalf("numTris=%d query=%d: RayTest = %+v, want %+v", numTris, q, got, want)
+				}
+			}
+
+			if occluded := tree.RayOccluded(ray.Point, ray.Slope, tLo, tHi, nil, nil); occluded != wantOK {
+				t.Fatalf("numTris=%d query=%d: RayOccluded = %v, want %v", numTris, q, occluded, wantOK)
+			}
 		}
-		for i := 0; i < node.NumChildren; i++ {
-			walk(node.Children[i])
+
+		// Guard against a test that passes by never hitting anything.
+		if numHits < 50 {
+			t.Errorf("numTris=%d: only %d of 200 rays hit", numTris, numHits)
 		}
 	}
-	walk(tree.Root)
-
-	if len(hits) > numBoxes {
-		panic("walked more leaves than boxes in the scene -- tree structure is corrupt")
-	}
-
-	return hits
 }
 
-// TestBVHRayTestClosestHit checks that a closest-hit query -- where checkRef
-// narrows the search interval to the nearest hit found so far -- still finds
-// the same nearest box as a brute-force scan.  This guards the interval
-// culling and nearest-first ordering in Tree.RayTest: culling too
-// aggressively would show up here as a missed or farther hit.  Each box's
-// "hit" is the ray parameter at which the ray enters it, clamped to 0 for
-// rays starting inside a box.
-func TestBVHRayTestClosestHit(t *testing.T) {
+// TestBVHRayTestSharedStack checks that queries sharing a Stack report
+// exactly what they would with a temporary one, leaving the stack empty
+// afterwards.
+func TestBVHRayTestSharedStack(t *testing.T) {
 	const sceneExtent = 1000.0
 
-	for _, numBoxes := range []int{1, 2, 3, 4, 5, 8, 17, 100, 977, 10_000} {
-		rng := rand.New(rand.NewPCG(2, uint64(numBoxes)))
-		tree := buildRandomBVH(rng, numBoxes, sceneExtent)
-		leaves := collectLeaves(tree.Root)
+	rng := rand.New(rand.NewPCG(3, 0))
+	tree := buildRandomBVH(rng, 977, sceneExtent)
 
-		for q := 0; q < 200; q++ {
-			ray := randomRay(rng, sceneExtent)
+	stack := &Stack{}
+	for q := 0; q < 200; q++ {
+		ray := aimedRay(rng, tree, sceneExtent)
 
-			gotT := posInf
-			tree.RayTest(ray.Point, ray.Slope, 0, posInf, nil, nil, func(ref int) float32 {
-				node := leaves[ref]
-				tMin, tMax := slabInterval(node.Lo, node.Hi, ray)
-				tMin = max(tMin, 0)
-				if tMin <= tMax && tMin < gotT {
-					gotT = tMin
-				}
-				return gotT
-			})
+		got, gotOK := tree.RayTest(ray.Point, ray.Slope, 0, posInf, stack, nil)
+		want, wantOK := tree.RayTest(ray.Point, ray.Slope, 0, posInf, nil, nil)
+		if got != want || gotOK != wantOK {
+			t.Fatalf("query=%d: RayTest with shared stack = %+v, want %+v", q, got, want)
+		}
+		if got, want := tree.RayOccluded(ray.Point, ray.Slope, 0, posInf, stack, nil), tree.RayOccluded(ray.Point, ray.Slope, 0, posInf, nil, nil); got != want {
+			t.Fatalf("query=%d: RayOccluded with shared stack = %v, want %v", q, got, want)
+		}
+		if len(stack.entries) != 0 {
+			t.Fatalf("query=%d: stack left with %d entries, want 0", q, len(stack.entries))
+		}
+	}
+}
 
-			wantT := posInf
-			for _, node := range leaves {
-				tMin, tMax := slabInterval(node.Lo, node.Hi, ray)
-				tMin = max(tMin, 0)
-				if tMin <= tMax && tMin < wantT {
-					wantT = tMin
+// TestBVHLeaves checks a tree's leaves: they partition the triangles, all but
+// one of them full; each leaf's bounds enclose its triangles' bounds; and
+// each leaf's unused lanes hold the degenerate triangle at the origin.
+func TestBVHLeaves(t *testing.T) {
+	const sceneExtent = 1000.0
+
+	for _, numTris := range []int{1, 2, 3, 4, 5, 7, 8, 9, 17, 100, 977} {
+		rng := rand.New(rand.NewPCG(3, uint64(numTris)))
+		tree := buildRandomBVH(rng, numTris, sceneExtent)
+
+		// Leaf-size-aligned splits leave only one leaf partly full, so the
+		// triangles fit in the fewest leaves possible.
+		if want := (numTris + LeafSize - 1) / LeafSize; len(tree.leaves) != want {
+			t.Errorf("numTris=%d: got %d leaves, want %d", numTris, len(tree.leaves), want)
+		}
+		var allRefs []int
+		for i := range tree.leaves {
+			l := &tree.leaves[i]
+			if l.N == 0 || l.N > LeafSize {
+				t.Fatalf("numTris=%d: leaf %d has %d triangles", numTris, i, l.N)
+			}
+			for _, ref := range l.Refs[:l.N] {
+				allRefs = append(allRefs, int(ref))
+			}
+			for lane := int(l.N); lane < LeafSize; lane++ {
+				if l.V0X[lane] != 0 || l.V0Y[lane] != 0 || l.V0Z[lane] != 0 ||
+					l.E1X[lane] != 0 || l.E1Y[lane] != 0 || l.E1Z[lane] != 0 ||
+					l.E2X[lane] != 0 || l.E2Y[lane] != 0 || l.E2Z[lane] != 0 {
+					t.Fatalf("numTris=%d: leaf %d's unused lane %d isn't zeroed", numTris, i, lane)
 				}
 			}
+		}
+		slices.Sort(allRefs)
+		for i, ref := range allRefs {
+			if ref != i {
+				t.Fatalf("numTris=%d: leaves don't partition the triangles: %v", numTris, allRefs)
+			}
+		}
 
-			if gotT != wantT {
-				t.Fatalf("numBoxes=%d query=%d: closest hit t = %v, want %v", numBoxes, q, gotT, wantT)
+		leaves := collectLeaves(tree.Root)
+		if len(leaves) != len(tree.leaves) {
+			t.Fatalf("numTris=%d: tree has %d leaf nodes, want %d", numTris, len(leaves), len(tree.leaves))
+		}
+		for i, node := range leaves {
+			l := &tree.leaves[i]
+			for _, ref := range l.Refs[:l.N] {
+				b := tree.triangles[ref].bounds()
+				for k := range 3 {
+					if b.Lo[k] < node.Lo[k] || b.Hi[k] > node.Hi[k] {
+						t.Fatalf("numTris=%d: leaf %d's bounds don't enclose triangle %d", numTris, i, ref)
+					}
+				}
 			}
 		}
 	}
 }
 
-// collectLeaves maps each leaf's Ref to the leaf itself.
+// collectLeaves maps each leaf node's Ref to the node itself.
 func collectLeaves(root *Node) map[int]*Node {
 	leaves := map[int]*Node{}
 	var walk func(node *Node)
@@ -173,76 +195,4 @@ func collectLeaves(root *Node) map[int]*Node {
 	}
 	walk(root)
 	return leaves
-}
-
-// slabInterval returns the range of ray parameters over which ray is inside
-// the box [lo, hi]; the ray misses the box if tMin > tMax.
-func slabInterval(lo, hi [4]float32, ray testRay) (tMin, tMax float32) {
-	tMin, tMax = negInf, posInf
-	for k := range 3 {
-		inv := 1.0 / ray.Slope[k]
-		t1 := (lo[k] - ray.Point[k]) * inv
-		t2 := (hi[k] - ray.Point[k]) * inv
-		tMin = max(tMin, min(t1, t2))
-		tMax = min(tMax, max(t1, t2))
-	}
-	return tMin, tMax
-}
-
-// TestBVHRayTestNestedStack checks that RayTest calls nested inside another's
-// checkRef can share its Stack -- the way a scene-level traversal descends
-// into each mesh's own tree -- and still report exactly what they would with
-// separate stacks, leaving the stack empty afterwards.
-func TestBVHRayTestNestedStack(t *testing.T) {
-	const sceneExtent = 1000.0
-
-	// Unlike buildRandomBVH's small boxes, these are large enough that most
-	// rays hit several boxes in each tree, so traversals actually nest: every
-	// outer box spans the whole scene, and inner boxes a tenth of it.
-	rng := rand.New(rand.NewPCG(3, 0))
-	buildBVH := func(numBoxes int, halfSize float32) *Tree {
-		tree := &Tree{}
-		for i := range numBoxes {
-			var center fvec4.T
-			for k := range 3 {
-				center[k] = (rng.Float32()*2 - 1) * sceneExtent
-			}
-			tree.AddElement(AABB{
-				Lo: fvec4.T{center[0] - halfSize, center[1] - halfSize, center[2] - halfSize, 0},
-				Hi: fvec4.T{center[0] + halfSize, center[1] + halfSize, center[2] + halfSize, 0},
-			}, i)
-		}
-		tree.Build()
-		return tree
-	}
-	outer := buildBVH(17, 2*sceneExtent)
-	inner := buildBVH(977, sceneExtent/10)
-
-	// Each outer hit triggers an inner traversal; record the (outer, inner)
-	// pairs reported.
-	collect := func(ray testRay, stack *Stack) [][2]int {
-		var hits [][2]int
-		outer.RayTest(ray.Point, ray.Slope, negInf, posInf, stack, nil, func(outerRef int) float32 {
-			inner.RayTest(ray.Point, ray.Slope, negInf, posInf, stack, nil, func(innerRef int) float32 {
-				hits = append(hits, [2]int{outerRef, innerRef})
-				return posInf
-			})
-			return posInf
-		})
-		return hits
-	}
-
-	stack := &Stack{}
-	for q := 0; q < 200; q++ {
-		ray := randomRay(rng, sceneExtent)
-
-		got := collect(ray, stack)
-		want := collect(ray, nil)
-		if !slices.Equal(got, want) {
-			t.Fatalf("query=%d: hits with shared stack = %v, want %v", q, got, want)
-		}
-		if len(stack.entries) != 0 {
-			t.Fatalf("query=%d: stack left with %d entries, want 0", q, len(stack.entries))
-		}
-	}
 }

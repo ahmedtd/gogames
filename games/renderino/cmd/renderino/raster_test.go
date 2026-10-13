@@ -5,6 +5,7 @@ import (
 	"math/rand/v2"
 	"testing"
 
+	"github.com/ahmedtd/gogames/games/renderino/internal/meshbvh"
 	"github.com/ahmedtd/gogames/lib/vmath/fmat44"
 	"github.com/ahmedtd/gogames/lib/vmath/fvec4"
 
@@ -110,7 +111,7 @@ func TestRasterizeMatchesRaytrace(t *testing.T) {
 					vs[j][3] = 0
 					clip[j] = projectToClip(proj, vs[j])
 				}
-				tri := MeshTri{V0: vs[0], E1: fvec4.SubVV(vs[1], vs[0]), E2: fvec4.SubVV(vs[2], vs[0])}
+				tri := MeshTri{Triangle: meshbvh.NewTriangle(vs[0], vs[1], vs[2])}
 				frontFacing := dot3(fvec4.CProd3(tri.E1, tri.E2), fvec4.SubVV(vs[0], cam.Center)) < 0
 
 				// Each vertex's normal is a different basis vector, so the

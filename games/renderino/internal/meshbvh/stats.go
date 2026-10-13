@@ -1,7 +1,7 @@
 package meshbvh
 
-// Stats counts the work done by RayTest calls.  Counting is cheap enough to
-// leave on: RayTest counts in locals and adds them into Stats once per call,
+// Stats counts the work done by queries.  Counting is cheap enough to leave
+// on: queries count in locals and adds them into Stats once per call,
 // without atomics, so each thread should count into its own Stats and merge
 // them afterwards with Add.
 type Stats struct {
@@ -9,8 +9,12 @@ type Stats struct {
 	// against all of the node's children's bounds at once.
 	InnerVisited int64
 
-	// Leaf references reported to checkRef.
+	// Leaves visited.
 	LeafRefs int64
+
+	// Ray-triangle intersection tests, counting every lane of each leaf
+	// tested.
+	TriTests int64
 }
 
 // NodesVisited returns the total number of nodes visited, both composite and
@@ -23,4 +27,5 @@ func (s *Stats) NodesVisited() int64 {
 func (s *Stats) Add(o *Stats) {
 	s.InnerVisited += o.InnerVisited
 	s.LeafRefs += o.LeafRefs
+	s.TriTests += o.TriTests
 }

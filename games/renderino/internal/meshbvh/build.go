@@ -12,16 +12,16 @@ import (
 // depth) is comparable between the two implementations.
 const bvhBranchingFactor = 4
 
-// AABB is an axis-aligned bounding box.  Only the first three lanes of Lo
+// aabb is an axis-aligned bounding box.  Only the first three lanes of Lo
 // and Hi are used.
-type AABB struct {
+type aabb struct {
 	Lo, Hi fvec4.T
 }
 
-// RawElement is a scene element to build a tree over: its bounds, and the
-// ref reported for it by queries such as RayTest.
-type RawElement struct {
-	Bounds AABB
+// rawElement is a triangle to build a tree over: its bounds, and its index
+// into Tree.triangles.
+type rawElement struct {
+	Bounds aabb
 	Ref    int
 }
 
@@ -35,8 +35,8 @@ const (
 type Node struct {
 	Type NodeType
 
-	// Valid when Type == NodeTypeConcrete: this node's own bounds and
-	// scene-element reference.  Also valid (as the union of children's
+	// Valid when Type == NodeTypeConcrete: this node's own bounds, and the
+	// index of its triangles in Tree.leaves.  Also valid (as the union of children's
 	// bounds) when Type == NodeTypeComposite, since this node might in
 	// turn be some other node's child.
 	Lo  fvec4.T
@@ -55,15 +55,17 @@ type Node struct {
 	ChildHiX, ChildHiY, ChildHiZ [bvhBranchingFactor]float32
 }
 
-// LeafSize is the most elements Build gathers into each leaf, matching the
-// SIMD register width (Float32x4 -- 4 lanes) a caller tests a leaf's elements
-// with.
+// LeafSize is the most triangles Build gathers into each leaf, matching the
+// SIMD register width used by leafTris.rayIntersect (Float32x4 -- 4 lanes).
+//
+// 8 lanes (Float32x8) was tried, and rendered slower: leaves of 8 triangles
+// bound them so loosely that a ray tested over twice as many triangles, and
+// the rasterizer drew a fifth more.
 const LeafSize = 4
 
-// LeafGroup locates the elements gathered into one leaf: they're
-// Elements[First:First+Count] of the Tree that built it.
-type LeafGroup struct {
-	First, Count int
+// span locates a run of elements: Tree.elements[first:first+count].
+type span struct {
+	first, count int
 }
 
 type Tree struct {
@@ -72,17 +74,15 @@ type Tree struct {
 	FreeList                  []*Node
 	AllocationsSinceLastClear int
 
-	// Elements holds the elements added by AddElement, which the next Build
-	// will build the tree over.  It's kept across Clear (with its length
-	// reset) so that rebuilding the tree every frame doesn't reallocate it.
-	// Build reorders it, leaving each leaf group's elements contiguous.
-	Elements []RawElement
+	// triangles holds the triangles added by AddTriangle, indexed by ref.
+	triangles []Triangle
 
-	// LeafGroups[g] locates the elements gathered into the leaf with Ref g.
-	// A leaf's Ref is an index into LeafGroups, so that a caller can lay out
-	// each group's elements together (e.g. to test them all at once with
-	// SIMD).
-	LeafGroups []LeafGroup
+	// elements holds the bounds of each triangle, for Build to sort and
+	// split.  Build reorders it, leaving each leaf's triangles contiguous.
+	elements []rawElement
+
+	// leaves[i] holds the triangles of the leaf with Ref i.
+	leaves []leafTris
 
 	// Scratch space for splitSAH, kept to avoid reallocating it on every
 	// build.
@@ -90,7 +90,8 @@ type Tree struct {
 }
 
 // Clear moves all nodes from the tree to the free list, and removes all
-// elements.
+// triangles.  The tree's other storage is kept (with its length reset), so
+// that rebuilding the tree doesn't reallocate it.
 func (t *Tree) Clear() {
 	workStack := []*Node{t.Root}
 	for len(workStack) != 0 {
@@ -112,8 +113,9 @@ func (t *Tree) Clear() {
 	t.AllocationsSinceLastClear = 0
 
 	t.Root = nil
-	t.Elements = t.Elements[:0]
-	t.LeafGroups = t.LeafGroups[:0]
+	t.triangles = t.triangles[:0]
+	t.elements = t.elements[:0]
+	t.leaves = t.leaves[:0]
 }
 
 func (t *Tree) getFreeNode() *Node {
@@ -128,56 +130,53 @@ func (t *Tree) getFreeNode() *Node {
 	return picked
 }
 
-// AddElement adds an element for the next Build to include.
-func (t *Tree) AddElement(bounds AABB, ref int) {
-	t.Elements = append(t.Elements, RawElement{Bounds: bounds, Ref: ref})
+// AddTriangle adds a triangle for the next Build to include.  Its ref, as
+// reported by queries, is the number of triangles added before it since the
+// last Clear.
+func (t *Tree) AddTriangle(tri Triangle) {
+	t.elements = append(t.elements, rawElement{Bounds: tri.bounds(), Ref: len(t.triangles)})
+	t.triangles = append(t.triangles, tri)
 }
 
-// Build builds the tree over the elements added since the last Clear.
+// Build builds the tree over the triangles added since the last Clear.
 func (t *Tree) Build() {
-	t.Root = t.assembleBVHTree(LeafGroup{First: 0, Count: len(t.Elements)})
+	t.Root = t.assembleBVHTree(span{first: 0, count: len(t.elements)})
 }
 
-// LeafElements returns the elements gathered into the leaf with Ref g.
-func (t *Tree) LeafElements(g int) []RawElement {
-	group := t.LeafGroups[g]
-	return t.Elements[group.First : group.First+group.Count]
-}
-
-// assembleBVHTree builds a subtree over the elements located by span.  Once
-// it has split them, it only reorders elements within each part, so each
-// leaf group stays contiguous.
-func (t *Tree) assembleBVHTree(span LeafGroup) *Node {
+// assembleBVHTree builds a subtree over the elements located by s.  Once it
+// has split them, it only reorders elements within each part, so each leaf's
+// elements stay contiguous.
+func (t *Tree) assembleBVHTree(s span) *Node {
 	// Base case.
-	if span.Count == 0 {
+	if s.count == 0 {
 		return nil
 	}
 
 	// Base case.  Few enough elements left to gather into one leaf.
-	if span.Count <= LeafSize {
-		return t.makeLeafGroup(span)
+	if s.count <= LeafSize {
+		return t.makeLeaf(s)
 	}
 
 	// Recursive case.  Split the elements in two using the surface area
 	// heuristic, then split each half in two again the same way, and make
 	// each of the resulting (up to) four groups one child.  This assumes
 	// bvhBranchingFactor == 4.
-	mid := t.splitSAH(t.Elements[span.First : span.First+span.Count])
-	halves := [2]LeafGroup{
-		{First: span.First, Count: mid},
-		{First: span.First + mid, Count: span.Count - mid},
+	mid := t.splitSAH(t.elements[s.first : s.first+s.count])
+	halves := [2]span{
+		{first: s.first, count: mid},
+		{first: s.first + mid, count: s.count - mid},
 	}
-	var groups [bvhBranchingFactor]LeafGroup
+	var groups [bvhBranchingFactor]span
 	numGroups := 0
 	for _, half := range halves {
-		if half.Count <= LeafSize {
+		if half.count <= LeafSize {
 			groups[numGroups] = half
 			numGroups++
 			continue
 		}
-		quarterMid := t.splitSAH(t.Elements[half.First : half.First+half.Count])
-		groups[numGroups] = LeafGroup{First: half.First, Count: quarterMid}
-		groups[numGroups+1] = LeafGroup{First: half.First + quarterMid, Count: half.Count - quarterMid}
+		quarterMid := t.splitSAH(t.elements[half.first : half.first+half.count])
+		groups[numGroups] = span{first: half.first, count: quarterMid}
+		groups[numGroups+1] = span{first: half.first + quarterMid, count: half.count - quarterMid}
 		numGroups += 2
 	}
 

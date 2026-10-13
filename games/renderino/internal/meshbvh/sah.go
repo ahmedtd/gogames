@@ -24,7 +24,7 @@ import (
 // can be partly full.
 //
 // elements must hold more than LeafSize elements.
-func (t *Tree) splitSAH(elements []RawElement) (mid int) {
+func (t *Tree) splitSAH(elements []rawElement) (mid int) {
 	n := len(elements)
 
 	// rightArea[i] is the surface area of the bounds of elements[i:].
@@ -77,8 +77,8 @@ func (t *Tree) splitSAH(elements []RawElement) (mid int) {
 }
 
 // sortByCentroid sorts elements by the centroid of their bounds along axis.
-func sortByCentroid(elements []RawElement, axis int) {
-	slices.SortFunc(elements, func(a, b RawElement) int {
+func sortByCentroid(elements []rawElement, axis int) {
+	slices.SortFunc(elements, func(a, b rawElement) int {
 		// Comparing Lo+Hi is equivalent to comparing (Lo+Hi)/2.
 		diff := (a.Bounds.Lo[axis] + a.Bounds.Hi[axis]) - (b.Bounds.Lo[axis] + b.Bounds.Hi[axis])
 		switch {

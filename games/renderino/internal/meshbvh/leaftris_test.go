@@ -1,4 +1,4 @@
-package main
+package meshbvh
 
 import (
 	"math/rand/v2"
@@ -8,26 +8,35 @@ import (
 	"github.com/ahmedtd/gogames/lib/vmath/fvec4"
 )
 
-// TestTriPacketMatchesMeshTri checks that TriPacket.RayIntersect gives, lane
-// for lane, exactly the result of MeshTri.RayIntersect on that lane's
-// triangle, for rays aimed at every packet of the ballista: some at random
-// points near the packet, and some at its triangles' vertices and edge
+// TestLeafTrisMatchesTriangle checks that leafTris.rayIntersect gives, lane
+// for lane, exactly the result of Triangle.RayIntersect on that lane's
+// triangle, for rays aimed at every leaf of a tree over the ballista: some at
+// random points near the leaf, and some at its triangles' vertices and edge
 // midpoints, where the inside/outside tests are on a knife edge.
-func TestTriPacketMatchesMeshTri(t *testing.T) {
+func TestLeafTrisMatchesTriangle(t *testing.T) {
 	mesh, err := kenneycastlekit.LoadSiegeBallista(true)
 	if err != nil {
 		t.Fatalf("while loading ballista: %v", err)
 	}
-	model := NewMeshModel(mesh)
+	tree := &Tree{}
+	for _, tri := range mesh.Tris {
+		var vs [3]fvec4.T
+		for j := range 3 {
+			v := mesh.Vertices[tri.VertexIndices[j]]
+			vs[j] = fvec4.T{v[0], v[1], v[2], 0}
+		}
+		tree.AddTriangle(NewTriangle(vs[0], vs[1], vs[2]))
+	}
+	tree.Build()
 
 	rng := rand.New(rand.NewPCG(1, 3))
 	numHits := 0
-	for g := range model.Packets {
-		p := &model.Packets[g]
+	for g := range tree.leaves {
+		p := &tree.leaves[g]
 
 		var targets []fvec4.T
 		for lane := range int(p.N) {
-			tri := &model.Tris[p.Tris[lane]]
+			tri := &tree.triangles[p.Refs[lane]]
 			v1 := fvec4.AddVV(tri.V0, tri.E1)
 			v2 := fvec4.AddVV(tri.V0, tri.E2)
 			targets = append(targets,
@@ -55,23 +64,23 @@ func TestTriPacketMatchesMeshTri(t *testing.T) {
 				queryLo = 1.001
 			}
 
-			var gotT, gotB1, gotB2 [triPacketSize]float32
-			mask := p.RayIntersect(origin, slope, queryLo, queryHi, &gotT, &gotB1, &gotB2)
+			var gotT, gotB1, gotB2 [LeafSize]float32
+			mask := p.rayIntersect(origin, slope, queryLo, queryHi, &gotT, &gotB1, &gotB2)
 			if mask>>p.N != 0 {
-				t.Fatalf("packet %d: hit mask %04b reports unused lanes (N=%d)", g, mask, p.N)
+				t.Fatalf("leaf %d: hit mask %04b reports unused lanes (N=%d)", g, mask, p.N)
 			}
 			for lane := range int(p.N) {
-				wantT, wantB1, wantB2, wantOK := model.Tris[p.Tris[lane]].RayIntersect(origin, slope, queryLo, queryHi)
+				wantT, wantB1, wantB2, wantOK := tree.triangles[p.Refs[lane]].RayIntersect(origin, slope, queryLo, queryHi)
 				gotOK := mask&(1<<lane) != 0
 				if gotOK != wantOK {
-					t.Fatalf("packet %d lane %d: hit = %v, want %v", g, lane, gotOK, wantOK)
+					t.Fatalf("leaf %d lane %d: hit = %v, want %v", g, lane, gotOK, wantOK)
 				}
 				if !wantOK {
 					continue
 				}
 				numHits++
 				if gotT[lane] != wantT || gotB1[lane] != wantB1 || gotB2[lane] != wantB2 {
-					t.Fatalf("packet %d lane %d: (t, b1, b2) = (%v, %v, %v), want (%v, %v, %v)",
+					t.Fatalf("leaf %d lane %d: (t, b1, b2) = (%v, %v, %v), want (%v, %v, %v)",
 						g, lane, gotT[lane], gotB1[lane], gotB2[lane], wantT, wantB1, wantB2)
 				}
 			}

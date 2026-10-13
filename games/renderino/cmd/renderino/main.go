@@ -906,28 +906,25 @@ func (r *RenderState) rasterizeTile(tile *RenderTile) {
 
 		// The same tile bounds, as planes in the instance's model space.
 		modelPlanes := rasterTilePlanes(toClip, gb.SrcX, gb.SrcY, gb.LimX, gb.LimY)
-		model.Tree.FrustumTest(modelPlanes[:], &stacks.Mesh, &tile.Stats.MeshBVH, func(packetRef int) {
-			p := &model.Packets[packetRef]
-			for _, triRef := range p.Tris[:p.N] {
-				tv := &model.TriVerts[triRef]
-				clip := [3]fvec4.T{
-					fmat44.MulMV(*toClip, model.Vertices[tv[0]]),
-					fmat44.MulMV(*toClip, model.Vertices[tv[1]]),
-					fmat44.MulMV(*toClip, model.Vertices[tv[2]]),
-				}
-				tri := &model.Tris[triRef]
-				attrs := RasterAttrs{
-					Normals: [3]fvec4.T{
-						inst.normalToWorld(tri.Ns[0]),
-						inst.normalToWorld(tri.Ns[1]),
-						inst.normalToWorld(tri.Ns[2]),
-					},
-					GeomNormal: inst.normalToWorld(fvec4.CProd3(tri.E1, tri.E2)),
-					UVs:        tri.UVs,
-					Diffuse:    model.Diffuse,
-				}
-				gb.RasterizeTri(clip, &attrs, r.CullBackFaces, VisHit{Inst: int32(instRef), Tri: triRef})
+		model.Tree.FrustumTest(modelPlanes[:], &stacks.Mesh, &tile.Stats.MeshBVH, func(triRef int) {
+			tv := &model.TriVerts[triRef]
+			clip := [3]fvec4.T{
+				fmat44.MulMV(*toClip, model.Vertices[tv[0]]),
+				fmat44.MulMV(*toClip, model.Vertices[tv[1]]),
+				fmat44.MulMV(*toClip, model.Vertices[tv[2]]),
 			}
+			tri := &model.Tris[triRef]
+			attrs := RasterAttrs{
+				Normals: [3]fvec4.T{
+					inst.normalToWorld(tri.Ns[0]),
+					inst.normalToWorld(tri.Ns[1]),
+					inst.normalToWorld(tri.Ns[2]),
+				},
+				GeomNormal: inst.normalToWorld(fvec4.CProd3(tri.E1, tri.E2)),
+				UVs:        tri.UVs,
+				Diffuse:    model.Diffuse,
+			}
+			gb.RasterizeTri(clip, &attrs, r.CullBackFaces, VisHit{Inst: int32(instRef), Tri: int32(triRef)})
 		})
 	})
 	tile.Stats.Raster = gb.Stats
@@ -986,8 +983,6 @@ type RayStats struct {
 	SceneBVH scenebvh.Stats // The scene-level tree.
 	MeshBVH  meshbvh.Stats  // Summed over every per-mesh tree.
 
-	TriTests int64 // Ray-triangle intersection tests.
-
 	Rays    int64 // Primary rays traced.
 	RayHits int64 // Primary rays that hit something.
 
@@ -1000,7 +995,6 @@ type RayStats struct {
 func (s *RayStats) Add(o *RayStats) {
 	s.SceneBVH.Add(&o.SceneBVH)
 	s.MeshBVH.Add(&o.MeshBVH)
-	s.TriTests += o.TriTests
 	s.Rays += o.Rays
 	s.RayHits += o.RayHits
 	s.ShadowRays += o.ShadowRays

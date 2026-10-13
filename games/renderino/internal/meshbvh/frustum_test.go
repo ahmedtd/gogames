@@ -24,11 +24,12 @@ func randomPlanes(rng *rand.Rand, sceneExtent float32) []fvec4.T {
 	return planes
 }
 
-// bruteForceFrustumTest tests every leaf of tree directly against planes.
+// bruteForceFrustumTest tests every leaf of tree directly against planes,
+// returning the refs of the triangles in the leaves that aren't outside.
 func bruteForceFrustumTest(tree *Tree, planes []fvec4.T) []int {
 	var hits []int
 leaves:
-	for ref, leaf := range collectLeaves(tree.Root) {
+	for i, leaf := range collectLeaves(tree.Root) {
 		for _, p := range planes {
 			// Test every corner of the leaf's bounds.
 			inside := false
@@ -47,19 +48,23 @@ leaves:
 				continue leaves
 			}
 		}
-		hits = append(hits, ref)
+		l := &tree.leaves[i]
+		for _, ref := range l.Refs[:l.N] {
+			hits = append(hits, int(ref))
+		}
 	}
 	return hits
 }
 
 // TestBVHFrustumTestMatchesBruteForce checks that Tree.FrustumTest reports
-// exactly the leaves that aren't entirely outside one of the planes.
+// exactly the triangles of the leaves that aren't entirely outside one of the
+// planes.
 func TestBVHFrustumTestMatchesBruteForce(t *testing.T) {
 	const sceneExtent = 1000.0
 
-	for _, numBoxes := range []int{1, 2, 3, 4, 5, 8, 17, 100, 977} {
-		rng := rand.New(rand.NewPCG(7, uint64(numBoxes)))
-		tree := buildRandomBVH(rng, numBoxes, sceneExtent)
+	for _, numTris := range []int{1, 2, 3, 4, 5, 8, 17, 100, 977} {
+		rng := rand.New(rand.NewPCG(7, uint64(numTris)))
+		tree := buildRandomBVH(rng, numTris, sceneExtent)
 
 		for q := 0; q < 200; q++ {
 			planes := randomPlanes(rng, sceneExtent)
@@ -74,7 +79,7 @@ func TestBVHFrustumTestMatchesBruteForce(t *testing.T) {
 			slices.Sort(wantHits)
 
 			if !slices.Equal(gotHits, wantHits) {
-				t.Fatalf("numBoxes=%d query=%d: Tree.FrustumTest = %v, want %v", numBoxes, q, gotHits, wantHits)
+				t.Fatalf("numTris=%d query=%d: Tree.FrustumTest = %v, want %v", numTris, q, gotHits, wantHits)
 			}
 		}
 	}
@@ -114,32 +119,33 @@ func TestBVHFrustumTestNestedStack(t *testing.T) {
 	}
 }
 
-// TestBVHFrustumTestNearestFirst checks that leaves strung out along the
+// TestBVHFrustumTestNearestFirst checks that triangles strung out along the
 // first plane's normal are reported nearest-first.  (Ordering is only between
 // siblings, so it's only global when sibling subtrees don't overlap along the
-// normal, as here.)  Elements within a leaf aren't ordered, so each leaf's
-// refs are sorted before checking the overall order.
+// normal, as here.)  Triangles within a leaf aren't ordered, so each leaf's
+// refs are sorted before checking the overall order; with a multiple of
+// LeafSize triangles, every leaf is full, so each leaf is LeafSize
+// consecutive reports.
 func TestBVHFrustumTestNearestFirst(t *testing.T) {
 	tree := &Tree{}
-	const numBoxes = 100
+	const numTris = 25 * LeafSize
 	rng := rand.New(rand.NewPCG(9, 0))
-	for _, x := range rng.Perm(numBoxes) {
-		lo := fvec4.T{float32(x), 0, 0, 0}
-		hi := fvec4.T{float32(x) + 0.5, lo[1] + 1, lo[2] + 1, 0}
-		tree.AddElement(AABB{Lo: lo, Hi: hi}, x)
+	refX := make([]int, numTris)
+	for ref, x := range rng.Perm(numTris) {
+		refX[ref] = x
+		v0 := fvec4.T{float32(x), 0, 0, 0}
+		tree.AddTriangle(NewTriangle(v0, fvec4.T{v0[0] + 0.5, 1, 0, 0}, fvec4.T{v0[0], 0, 1, 0}))
 	}
 	tree.Build()
 
 	var got []int
-	tree.FrustumTest([]fvec4.T{{1, 0, 0, 0}}, nil, nil, func(g int) {
-		var refs []int
-		for _, e := range tree.LeafElements(g) {
-			refs = append(refs, e.Ref)
-		}
-		slices.Sort(refs)
-		got = append(got, refs...)
+	tree.FrustumTest([]fvec4.T{{1, 0, 0, 0}}, nil, nil, func(ref int) {
+		got = append(got, refX[ref])
 	})
-	if !slices.IsSorted(got) || len(got) != numBoxes {
-		t.Errorf("FrustumTest reported %v; want all %d elements in increasing order", got, numBoxes)
+	for i := 0; i+LeafSize <= len(got); i += LeafSize {
+		slices.Sort(got[i : i+LeafSize])
+	}
+	if !slices.IsSorted(got) || len(got) != numTris {
+		t.Errorf("FrustumTest reported %v; want all %d triangles in increasing order", got, numTris)
 	}
 }

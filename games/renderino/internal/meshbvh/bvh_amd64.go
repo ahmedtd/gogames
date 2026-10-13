@@ -9,34 +9,21 @@ import (
 	"github.com/ahmedtd/gogames/lib/vmath/fvec4"
 )
 
-// RayTest fires a ray (origin point, direction slope) through the BVH tree,
-// invoking checkRef with the Ref of any leaf whose bounds the ray overlaps for
-// some ray parameter t in [tLo, tHi].  A leaf's Ref indexes t.LeafGroups
-// (see LeafElements).
+// rayTest fires a ray (origin point, direction slope) through the tree,
+// invoking checkLeaf with the Ref of every leaf whose bounds the ray overlaps
+// for some ray parameter t in [tLo, tHi].
 //
-// checkRef returns a new upper bound for t -- normally the t of the closest
+// checkLeaf returns a new upper bound for t -- normally the t of the closest
 // hit found so far -- and the rest of the traversal skips any bounds the ray
 // only enters beyond it.  Returning +Inf (or anything >= the current bound)
-// leaves the bound unchanged.  Children are visited nearest-first, so a
-// closest-hit query tightens the bound as early as possible.
+// leaves the bound unchanged, and returning anything below tLo stops the
+// traversal.  If ordered is set, children are visited nearest-first, so a
+// closest-hit query tightens the bound as early as possible; otherwise
+// they're visited in whatever order is cheapest, which suits any-hit queries.
 //
 // The traversal's work stack is kept in stack, which may be nil to use a
 // temporary one.  The work done is added into stats, which may be nil.
-func (t *Tree) RayTest(point, slope fvec4.T, tLo, tHi float32, stack *Stack, stats *Stats, checkRef func(ref int) float32) {
-	t.rayTest(point, slope, tLo, tHi, stack, stats, true, checkRef)
-}
-
-// RayTestUnordered is RayTest without the nearest-first ordering: a node's
-// hit children are visited in whatever order is cheapest.  That suits
-// any-hit queries (e.g. shadow rays), where checkRef stops the traversal at
-// the first hit by returning a bound below tLo, and sorting children by
-// distance would be wasted work.
-func (t *Tree) RayTestUnordered(point, slope fvec4.T, tLo, tHi float32, stack *Stack, stats *Stats, checkRef func(ref int) float32) {
-	t.rayTest(point, slope, tLo, tHi, stack, stats, false, checkRef)
-}
-
-// rayTest implements RayTest (ordered set) and RayTestUnordered.
-func (t *Tree) rayTest(point, slope fvec4.T, tLo, tHi float32, stack *Stack, stats *Stats, ordered bool, checkRef func(ref int) float32) {
+func (t *Tree) rayTest(point, slope fvec4.T, tLo, tHi float32, stack *Stack, stats *Stats, ordered bool, checkLeaf func(leaf int) float32) {
 	if t.Root == nil {
 		return
 	}
@@ -46,7 +33,7 @@ func (t *Tree) rayTest(point, slope fvec4.T, tLo, tHi float32, stack *Stack, sta
 	// so if it's a leaf, it must be tested directly here instead.
 	if t.Root.Type == NodeTypeConcrete {
 		if bvhLeafRayTest(t.Root.Lo, t.Root.Hi, point, slope, tLo, tHi) {
-			checkRef(t.Root.Ref)
+			checkLeaf(t.Root.Ref)
 		}
 		return
 	}
@@ -87,13 +74,7 @@ func (t *Tree) rayTest(point, slope fvec4.T, tLo, tHi float32, stack *Stack, sta
 			leafRefs++
 			// This node was already bounds-tested as one lane of its
 			// parent's bvhRayTest4 call, so it can be reported directly.
-			//
-			// checkRef may make a nested RayTest call on the same stack,
-			// which pushes on top of ours (possibly growing it) and pops
-			// back down to our length before returning.
-			stack.entries = workStack
-			tHi = min(tHi, checkRef(node.Ref))
-			workStack = stack.entries
+			tHi = min(tHi, checkLeaf(node.Ref))
 		case NodeTypeComposite:
 			innerVisited++
 			var tEnter [bvhBranchingFactor]float32

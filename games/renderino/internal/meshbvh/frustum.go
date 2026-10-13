@@ -4,20 +4,19 @@ import (
 	"github.com/ahmedtd/gogames/lib/vmath/fvec4"
 )
 
-// FrustumTest invokes checkRef with the Ref of every leaf whose bounds aren't
-// entirely outside one of planes.  A leaf's Ref indexes t.LeafGroups (see
-// LeafElements).  It's conservative: a leaf's bounds can be reported while
-// lying outside the intersection of the planes, for example near the corners
-// of a frustum.
+// FrustumTest invokes checkRef with the ref of every triangle in a leaf whose
+// bounds aren't entirely outside one of planes.  It's conservative: a
+// triangle can be reported while lying outside the intersection of the
+// planes, for example near the corners of a frustum, or because it shares a
+// leaf with one that isn't.
 //
 // Plane i is (n, d) packed as {n[0], n[1], n[2], d}, and holds the points p
 // with n.p + d >= 0.  The first plane also orders the traversal: children are
 // visited nearest-first along its normal, so that if it's a camera's near
-// plane, leaves tend to be reported front-to-back.
+// plane, triangles tend to be reported front-to-back.
 //
 // The traversal's work stack is kept in stack, which may be nil to use a
-// temporary one; as with RayTest, checkRef may make nested calls on the same
-// stack.  The work done is added into stats, which may be nil.
+// temporary one; checkRef may make nested calls on the same stack.  The work done is added into stats, which may be nil.
 func (t *Tree) FrustumTest(planes []fvec4.T, stack *Stack, stats *Stats, checkRef func(ref int)) {
 	if t.Root == nil || len(planes) == 0 {
 		return
@@ -32,7 +31,7 @@ func (t *Tree) FrustumTest(planes []fvec4.T, stack *Stack, stats *Stats, checkRe
 				return
 			}
 		}
-		checkRef(t.Root.Ref)
+		t.reportLeaf(t.Root.Ref, checkRef)
 		return
 	}
 
@@ -54,7 +53,7 @@ func (t *Tree) FrustumTest(planes []fvec4.T, stack *Stack, stats *Stats, checkRe
 		case NodeTypeConcrete:
 			leafRefs++
 			stack.entries = workStack
-			checkRef(node.Ref)
+			t.reportLeaf(node.Ref, checkRef)
 			workStack = stack.entries
 		case NodeTypeComposite:
 			innerVisited++
@@ -112,4 +111,12 @@ func pick(n, lo, hi float32) float32 {
 		return hi
 	}
 	return lo
+}
+
+// reportLeaf invokes checkRef with the ref of each triangle in leaf.
+func (t *Tree) reportLeaf(leaf int, checkRef func(ref int)) {
+	l := &t.leaves[leaf]
+	for _, ref := range l.Refs[:l.N] {
+		checkRef(int(ref))
+	}
 }
