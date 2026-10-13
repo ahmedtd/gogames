@@ -6,11 +6,6 @@ import (
 	"github.com/ahmedtd/gogames/lib/vmath/fvec4"
 )
 
-// bvhBranchingFactor is the number of children a composite BVH node can
-// have.  Matches the amd64/SIMD build's branching factor so the tree shape
-// (and thus traversal depth) is comparable between the two implementations.
-const bvhBranchingFactor = 4
-
 // RayTest fires a ray (origin point, direction slope) through the BVH tree,
 // invoking checkRef with the index of any scene element whose bounds the ray
 // overlaps for some ray parameter t in [tLo, tHi].
@@ -131,35 +126,6 @@ func (t *Tree) rayTest(point, slope fvec4.T, tLo, tHi float32, stack *Stack, sta
 		stats.InnerVisited += innerVisited
 		stats.LeafRefs += leafRefs
 	}
-}
-
-type NodeType int
-
-const (
-	NodeTypeConcrete NodeType = iota
-	NodeTypeComposite
-)
-
-type Node struct {
-	Type NodeType
-
-	// Valid when Type == NodeTypeConcrete: this node's own bounds and
-	// scene-element reference.  Also valid (as the union of children's
-	// bounds) when Type == NodeTypeComposite, since this node might in
-	// turn be some other node's child.
-	Lo  fvec4.T
-	Hi  fvec4.T
-	Ref int
-
-	// Valid when Type == NodeTypeComposite.  Children holds NumChildren
-	// child pointers (trailing slots unused).  ChildLoX/Y/Z and
-	// ChildHiX/Y/Z store the same children's bounds in struct-of-arrays
-	// form -- one lane per child -- matching the amd64/SIMD build's layout,
-	// even though this build tests them with a plain scalar loop.
-	NumChildren                  int
-	Children                     [bvhBranchingFactor]*Node
-	ChildLoX, ChildLoY, ChildLoZ [bvhBranchingFactor]float32
-	ChildHiX, ChildHiY, ChildHiZ [bvhBranchingFactor]float32
 }
 
 // bvhLeafRayTest tests a ray against a single AABB directly, using the slab

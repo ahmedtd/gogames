@@ -9,12 +9,6 @@ import (
 	"github.com/ahmedtd/gogames/lib/vmath/fvec4"
 )
 
-// bvhBranchingFactor is the number of children a composite BVH node can
-// have.  Testing all of a node's children against a ray is one SIMD pass
-// over a [bvhBranchingFactor]float32 lane per bound, so this is tied to the
-// SIMD register width used by bvhRayTest4 (Float32x4 -- 4 lanes).
-const bvhBranchingFactor = 4
-
 // RayTest fires a ray (origin point, direction slope) through the BVH tree,
 // invoking checkRef with the index of any scene element whose bounds the ray
 // overlaps for some ray parameter t in [tLo, tHi].
@@ -150,35 +144,6 @@ func (t *Tree) rayTest(point, slope fvec4.T, tLo, tHi float32, stack *Stack, sta
 		stats.InnerVisited += innerVisited
 		stats.LeafRefs += leafRefs
 	}
-}
-
-type NodeType int
-
-const (
-	NodeTypeConcrete NodeType = iota
-	NodeTypeComposite
-)
-
-type Node struct {
-	Type NodeType
-
-	// Valid when Type == NodeTypeConcrete: this node's own bounds and
-	// scene-element reference.  Also valid (as the union of children's
-	// bounds) when Type == NodeTypeComposite, since this node might in
-	// turn be some other node's child.
-	Lo  [4]float32
-	Hi  [4]float32
-	Ref int
-
-	// Valid when Type == NodeTypeComposite.  Children holds NumChildren
-	// child pointers (trailing slots unused).  ChildLoX/Y/Z and
-	// ChildHiX/Y/Z store the same children's bounds in struct-of-arrays
-	// form -- one lane per child -- so bvhRayTest4 can test all of a node's
-	// children with a handful of SIMD ops instead of one test per child.
-	NumChildren                  int
-	Children                     [bvhBranchingFactor]*Node
-	ChildLoX, ChildLoY, ChildLoZ [bvhBranchingFactor]float32
-	ChildHiX, ChildHiY, ChildHiZ [bvhBranchingFactor]float32
 }
 
 // bvhRayTest4 tests a ray (given as broadcast point/inverse-slope lanes) against

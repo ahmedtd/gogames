@@ -4,6 +4,14 @@ import (
 	"github.com/ahmedtd/gogames/lib/vmath/fvec4"
 )
 
+// bvhBranchingFactor is the number of children a composite BVH node can
+// have.  The amd64/SIMD build tests all of a node's children against a ray in
+// one SIMD pass over a [bvhBranchingFactor]float32 lane per bound, so this is
+// tied to the SIMD register width used by bvhRayTest4 (Float32x4 -- 4 lanes).
+// The purego build uses the same value so the tree shape (and thus traversal
+// depth) is comparable between the two implementations.
+const bvhBranchingFactor = 4
+
 // AABB is an axis-aligned bounding box.  Only the first three lanes of Lo
 // and Hi are used.
 type AABB struct {
@@ -15,6 +23,36 @@ type AABB struct {
 type RawElement struct {
 	Bounds AABB
 	Ref    int
+}
+
+type NodeType int
+
+const (
+	NodeTypeConcrete NodeType = iota
+	NodeTypeComposite
+)
+
+type Node struct {
+	Type NodeType
+
+	// Valid when Type == NodeTypeConcrete: this node's own bounds and
+	// scene-element reference.  Also valid (as the union of children's
+	// bounds) when Type == NodeTypeComposite, since this node might in
+	// turn be some other node's child.
+	Lo  fvec4.T
+	Hi  fvec4.T
+	Ref int
+
+	// Valid when Type == NodeTypeComposite.  Children holds NumChildren
+	// child pointers (trailing slots unused).  ChildLoX/Y/Z and
+	// ChildHiX/Y/Z store the same children's bounds in struct-of-arrays
+	// form -- one lane per child -- so the amd64/SIMD build can test all of
+	// a node's children with a handful of SIMD ops instead of one test per
+	// child.  The purego build tests them with a plain scalar loop.
+	NumChildren                  int
+	Children                     [bvhBranchingFactor]*Node
+	ChildLoX, ChildLoY, ChildLoZ [bvhBranchingFactor]float32
+	ChildHiX, ChildHiY, ChildHiZ [bvhBranchingFactor]float32
 }
 
 type Tree struct {
