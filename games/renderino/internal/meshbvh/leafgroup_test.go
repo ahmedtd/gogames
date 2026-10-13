@@ -1,4 +1,4 @@
-package bvh
+package meshbvh
 
 import (
 	"math/rand/v2"
@@ -8,18 +8,17 @@ import (
 	"github.com/ahmedtd/gogames/lib/vmath/fvec4"
 )
 
-// TestBVHLeafGroups checks a tree built with LeafSize > 1: its leaf groups
-// partition the elements, all but one of them full; each group leaf's bounds
-// enclose its elements' bounds; and RayTest and RayTestUnordered report a
-// group for every element whose bounds the ray overlaps.
+// TestBVHLeafGroups checks a tree's leaf groups: they partition the elements,
+// all but one of them full; each group leaf's bounds enclose its elements'
+// bounds; and RayTest and RayTestUnordered report a group for every element
+// whose bounds the ray overlaps.
 func TestBVHLeafGroups(t *testing.T) {
 	const sceneExtent = 1000.0
-	const leafSize = 4
 
 	for _, numBoxes := range []int{1, 2, 3, 4, 5, 7, 8, 9, 17, 100, 977} {
 		rng := rand.New(rand.NewPCG(3, uint64(numBoxes)))
 
-		tree := &Tree{LeafSize: leafSize}
+		tree := &Tree{}
 		var los, his [][4]float32
 		for i := range numBoxes {
 			center := fvec4.T{
@@ -40,15 +39,26 @@ func TestBVHLeafGroups(t *testing.T) {
 
 		// Leaf-size-aligned splits leave only one group partly full, so
 		// the elements fit in the fewest groups possible.
-		if want := (numBoxes + leafSize - 1) / leafSize; len(tree.LeafGroups) != want {
+		if want := (numBoxes + LeafSize - 1) / LeafSize; len(tree.LeafGroups) != want {
 			t.Errorf("numBoxes=%d: got %d leaf groups, want %d", numBoxes, len(tree.LeafGroups), want)
 		}
+		// The groups tile tree.Elements in order.
 		var allRefs []int
+		next := 0
 		for g, group := range tree.LeafGroups {
-			if len(group) == 0 || len(group) > leafSize {
-				t.Fatalf("numBoxes=%d: group %d has %d elements", numBoxes, g, len(group))
+			if group.Count == 0 || group.Count > LeafSize {
+				t.Fatalf("numBoxes=%d: group %d has %d elements", numBoxes, g, group.Count)
 			}
-			allRefs = append(allRefs, group...)
+			if group.First != next {
+				t.Fatalf("numBoxes=%d: group %d starts at %d, want %d", numBoxes, g, group.First, next)
+			}
+			next += group.Count
+			for _, e := range tree.LeafElements(g) {
+				allRefs = append(allRefs, e.Ref)
+			}
+		}
+		if next != len(tree.Elements) {
+			t.Fatalf("numBoxes=%d: groups cover %d elements, want %d", numBoxes, next, len(tree.Elements))
 		}
 		slices.Sort(allRefs)
 		for i, ref := range allRefs {
@@ -62,10 +72,10 @@ func TestBVHLeafGroups(t *testing.T) {
 			t.Fatalf("numBoxes=%d: tree has %d leaves, want %d", numBoxes, len(leaves), len(tree.LeafGroups))
 		}
 		for g, leaf := range leaves {
-			for _, ref := range tree.LeafGroups[g] {
+			for _, e := range tree.LeafElements(g) {
 				for k := range 3 {
-					if los[ref][k] < leaf.Lo[k] || his[ref][k] > leaf.Hi[k] {
-						t.Fatalf("numBoxes=%d: group %d's bounds don't enclose element %d", numBoxes, g, ref)
+					if los[e.Ref][k] < leaf.Lo[k] || his[e.Ref][k] > leaf.Hi[k] {
+						t.Fatalf("numBoxes=%d: group %d's bounds don't enclose element %d", numBoxes, g, e.Ref)
 					}
 				}
 			}
@@ -90,8 +100,8 @@ func TestBVHLeafGroups(t *testing.T) {
 			} {
 				reported := map[int]bool{}
 				method.rayTest(ray.Point, ray.Slope, negInf, posInf, nil, nil, func(g int) float32 {
-					for _, ref := range tree.LeafGroups[g] {
-						reported[ref] = true
+					for _, e := range tree.LeafElements(g) {
+						reported[e.Ref] = true
 					}
 					return posInf
 				})

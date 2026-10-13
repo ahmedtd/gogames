@@ -90,8 +90,10 @@ func BenchmarkRenderFrame(b *testing.B) {
 					b.ReportMetric(float64(b.N)*benchRX*benchRY/b.Elapsed().Seconds()/1e6, "Mrays/s")
 
 					rays := float64(stats.Rays)
-					b.ReportMetric(float64(stats.BVH.NodesVisited())/rays, "nodes/ray")
-					b.ReportMetric(float64(stats.BVH.InnerVisited)/rays, "inner/ray")
+					nodesVisited := stats.SceneBVH.NodesVisited() + stats.MeshBVH.NodesVisited()
+					innerVisited := stats.SceneBVH.InnerVisited + stats.MeshBVH.InnerVisited
+					b.ReportMetric(float64(nodesVisited)/rays, "nodes/ray")
+					b.ReportMetric(float64(innerVisited)/rays, "inner/ray")
 					b.ReportMetric(float64(stats.TriTests)/rays, "tris/ray")
 					b.ReportMetric(float64(stats.RayHits)/rays, "hitfrac")
 					b.ReportMetric(float64(stats.ShadowRays)/rays, "shadows/ray")

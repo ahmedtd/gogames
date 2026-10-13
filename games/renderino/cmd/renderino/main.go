@@ -25,7 +25,8 @@ import (
 	"github.com/ahmedtd/gogames/embeddedassets/departuremonofont"
 	"github.com/ahmedtd/gogames/embeddedassets/kenneycastlekit"
 	"github.com/ahmedtd/gogames/embeddedassets/kenneyprototypekit"
-	"github.com/ahmedtd/gogames/games/renderino/internal/bvh"
+	"github.com/ahmedtd/gogames/games/renderino/internal/meshbvh"
+	"github.com/ahmedtd/gogames/games/renderino/internal/scenebvh"
 	"github.com/ahmedtd/gogames/lib/vmath/fmat44"
 	"github.com/ahmedtd/gogames/lib/vmath/fvec4"
 
@@ -172,7 +173,7 @@ type RenderTile struct {
 
 	// Scratch space for BVH traversals while raytracing this tile.  As with
 	// Stats, only the thread rendering this tile uses it.
-	BVHStack bvh.Stack
+	BVHStacks BVHStacks
 
 	// Size (LimX-SrcX)*(LimY-SrcY)
 	IndexBuf [][4]float32
@@ -591,12 +592,12 @@ func (r *Renderer) updateRenderState(ws *WorldState) {
 	// Build tree.  Each mesh instance has its own model-space tree over its
 	// triangles, so only its overall bounds go in the scene tree.
 	if r.LatestRenderState.Tree == nil {
-		r.LatestRenderState.Tree = &bvh.Tree{}
+		r.LatestRenderState.Tree = &scenebvh.Tree{}
 	}
 	r.LatestRenderState.Tree.Clear()
 	for i := range r.LatestRenderState.MeshInstances {
 		inst := &r.LatestRenderState.MeshInstances[i]
-		r.LatestRenderState.Tree.AddElement(bvh.AABB{Lo: inst.Lo, Hi: inst.Hi}, i)
+		r.LatestRenderState.Tree.AddElement(scenebvh.AABB{Lo: inst.Lo, Hi: inst.Hi}, i)
 	}
 	r.LatestRenderState.Tree.Build()
 }
@@ -858,7 +859,7 @@ type RenderState struct {
 	DirectionalLights []DirectionalLight
 	PointLights       []PointLight
 
-	Tree *bvh.Tree
+	Tree *scenebvh.Tree
 
 	// If set, the first contact of each camera ray is found by rasterizing
 	// the scene rather than raytracing it.
@@ -895,18 +896,17 @@ func (r *RenderState) prepareRaster(rx, ry int) {
 func (r *RenderState) rasterizeTile(tile *RenderTile) {
 	gb := tile.GBuf
 	gb.Clear()
-	stack := &tile.BVHStack
-	bvhStats := &tile.Stats.BVH
+	stacks := &tile.BVHStacks
 
 	planes := rasterTilePlanes(&r.projection.WorldToClip, gb.SrcX, gb.SrcY, gb.LimX, gb.LimY)
-	r.Tree.FrustumTest(planes[:], stack, bvhStats, func(instRef int) {
+	r.Tree.FrustumTest(planes[:], &stacks.Scene, &tile.Stats.SceneBVH, func(instRef int) {
 		inst := &r.MeshInstances[instRef]
 		model := inst.Model
 		toClip := &r.instanceToClip[instRef]
 
 		// The same tile bounds, as planes in the instance's model space.
 		modelPlanes := rasterTilePlanes(toClip, gb.SrcX, gb.SrcY, gb.LimX, gb.LimY)
-		model.Tree.FrustumTest(modelPlanes[:], stack, bvhStats, func(packetRef int) {
+		model.Tree.FrustumTest(modelPlanes[:], &stacks.Mesh, &tile.Stats.MeshBVH, func(packetRef int) {
 			p := &model.Packets[packetRef]
 			for _, triRef := range p.Tris[:p.N] {
 				tv := &model.TriVerts[triRef]
@@ -957,9 +957,9 @@ func (r *RenderState) RenderTile(tile *RenderTile, rx, ry int) {
 				}
 				var p RGBPower
 				if r.RasterPrimary {
-					p = r.RenderGBufferSample(ray, cameraRay[0], tile.GBuf, pixelIndex*samples+s, &tile.BVHStack, &tile.Stats)
+					p = r.RenderGBufferSample(ray, cameraRay[0], tile.GBuf, pixelIndex*samples+s, &tile.BVHStacks, &tile.Stats)
 				} else {
-					p = r.RenderRay(ray, &tile.BVHStack, &tile.Stats)
+					p = r.RenderRay(ray, &tile.BVHStacks, &tile.Stats)
 				}
 				sum[0] += p[0]
 				sum[1] += p[1]
@@ -970,12 +970,21 @@ func (r *RenderState) RenderTile(tile *RenderTile, rx, ry int) {
 	}
 }
 
+// BVHStacks is scratch space for BVH traversals: one stack for the scene tree,
+// and one for the mesh trees descended into from it.  Like the stacks
+// themselves, it must not be shared by concurrent traversals.
+type BVHStacks struct {
+	Scene scenebvh.Stack
+	Mesh  meshbvh.Stack
+}
+
 // RayStats counts raytracing work, for measuring how much work the renderer
 // does per ray independently of how fast it does it.  It's plain counters, so
 // each render thread should count into its own RayStats and merge them
 // afterwards with Add.
 type RayStats struct {
-	BVH bvh.Stats // Summed over every tree: scene-level and per-mesh.
+	SceneBVH scenebvh.Stats // The scene-level tree.
+	MeshBVH  meshbvh.Stats  // Summed over every per-mesh tree.
 
 	TriTests int64 // Ray-triangle intersection tests.
 
@@ -989,7 +998,8 @@ type RayStats struct {
 
 // Add adds o's counts into s.
 func (s *RayStats) Add(o *RayStats) {
-	s.BVH.Add(&o.BVH)
+	s.SceneBVH.Add(&o.SceneBVH)
+	s.MeshBVH.Add(&o.MeshBVH)
 	s.TriTests += o.TriTests
 	s.Rays += o.Rays
 	s.RayHits += o.RayHits
@@ -997,16 +1007,16 @@ func (s *RayStats) Add(o *RayStats) {
 	s.Raster.Add(&o.Raster)
 }
 
-// RenderRay traces a primary ray, using stack for BVH traversals and adding
+// RenderRay traces a primary ray, using stacks for BVH traversals and adding
 // the work done into stats.
-func (r *RenderState) RenderRay(ray Ray, stack *bvh.Stack, stats *RayStats) RGBPower {
+func (r *RenderState) RenderRay(ray Ray, stacks *BVHStacks, stats *RayStats) RGBPower {
 	minContact := Contact{
 		Mode: ContactModeMiss,
 		T:    100000000.0,
 	}
 
-	r.Tree.RayTest(ray.Point, ray.Slope, 0.0, minContact.T, stack, &stats.BVH, func(ref int) float32 {
-		contact := r.MeshInstances[ref].RayContact(ray, 0.0, minContact.T, stack, stats)
+	r.Tree.RayTest(ray.Point, ray.Slope, 0.0, minContact.T, &stacks.Scene, &stats.SceneBVH, func(ref int) float32 {
+		contact := r.MeshInstances[ref].RayContact(ray, 0.0, minContact.T, &stacks.Mesh, stats)
 		if contact.Mode != ContactModeMiss {
 			if contact.T > 0.0 && contact.T < minContact.T {
 				minContact = contact
@@ -1021,14 +1031,14 @@ func (r *RenderState) RenderRay(ray Ray, stack *bvh.Stack, stats *RayStats) RGBP
 	}
 
 	stats.RayHits++
-	power := r.matteShade(&minContact, stack, stats)
+	power := r.matteShade(&minContact, stacks, stats)
 	return power
 }
 
 // RenderGBufferSample is RenderRay for a primary ray whose first contact was
 // found by rasterization, as sample i of gb.  eyeSlope is the component of
 // the ray's slope along the camera's eye axis.
-func (r *RenderState) RenderGBufferSample(ray Ray, eyeSlope float32, gb *GBuffer, i int, stack *bvh.Stack, stats *RayStats) RGBPower {
+func (r *RenderState) RenderGBufferSample(ray Ray, eyeSlope float32, gb *GBuffer, i int, stacks *BVHStacks, stats *RayStats) RGBPower {
 	stats.Rays++
 	hit := gb.Hits[i]
 	if hit.Inst < 0 {
@@ -1051,7 +1061,7 @@ func (r *RenderState) RenderGBufferSample(ray Ray, eyeSlope float32, gb *GBuffer
 	if hit.Back {
 		contact.Mode = ContactModeExit
 	}
-	return r.matteShade(&contact, stack, stats)
+	return r.matteShade(&contact, stacks, stats)
 }
 
 // missPower is the light arriving along a ray that leaves the scene: a simple
@@ -1079,11 +1089,11 @@ const shadowCutoffPower = 4.0 / 256
 // Occluded reports whether anything in the scene blocks ray for t in
 // (tLo, tHi).  It stops at the first blocker found, rather than searching for
 // the nearest.
-func (r *RenderState) Occluded(ray Ray, tLo, tHi float32, stack *bvh.Stack, stats *RayStats) bool {
+func (r *RenderState) Occluded(ray Ray, tLo, tHi float32, stacks *BVHStacks, stats *RayStats) bool {
 	stats.ShadowRays++
 	occluded := false
-	r.Tree.RayTestUnordered(ray.Point, ray.Slope, tLo, tHi, stack, &stats.BVH, func(ref int) float32 {
-		if r.MeshInstances[ref].RayOccluded(ray, tLo, tHi, stack, stats) {
+	r.Tree.RayTestUnordered(ray.Point, ray.Slope, tLo, tHi, &stacks.Scene, &stats.SceneBVH, func(ref int) float32 {
+		if r.MeshInstances[ref].RayOccluded(ray, tLo, tHi, &stacks.Mesh, stats) {
 			occluded = true
 			// A bound below tLo prunes the rest of the traversal.
 			return float32(math.Inf(-1))
@@ -1096,7 +1106,7 @@ func (r *RenderState) Occluded(ray Ray, tLo, tHi float32, stack *bvh.Stack, stat
 // matteShade computes the diffuse light leaving contact.  With Shadows set,
 // each directional and point light only contributes if a shadow ray from the
 // contact can reach it.
-func (r *RenderState) matteShade(contact *Contact, stack *bvh.Stack, stats *RayStats) RGBPower {
+func (r *RenderState) matteShade(contact *Contact, stacks *BVHStacks, stats *RayStats) RGBPower {
 	totalPower := RGBPower{}
 
 	// Shadow rays leave from just off the surface, on the side facing the
@@ -1117,7 +1127,7 @@ func (r *RenderState) matteShade(contact *Contact, stack *bvh.Stack, stats *RayS
 			continue
 		}
 		shadowRay := Ray{Point: shadowOrigin, Slope: l.DirectionToSource}
-		if !r.Shadows || !r.Occluded(shadowRay, 0, float32(math.Inf(1)), stack, stats) {
+		if !r.Shadows || !r.Occluded(shadowRay, 0, float32(math.Inf(1)), stacks, stats) {
 			totalPower[0] += dot * l.Power[0]
 			totalPower[1] += dot * l.Power[1]
 			totalPower[2] += dot * l.Power[2]
@@ -1142,7 +1152,7 @@ func (r *RenderState) matteShade(contact *Contact, stack *bvh.Stack, stats *RayS
 			// With the unnormalized slope, the light is at t = 1, so
 			// anything with t < 1 is between the contact and the light.
 			shadowRay := Ray{Point: shadowOrigin, Slope: fvec4.SubVV(l.Center, shadowOrigin)}
-			lit = !r.Occluded(shadowRay, 0, 1, stack, stats)
+			lit = !r.Occluded(shadowRay, 0, 1, stacks, stats)
 		}
 		if lit {
 			totalPower[0] += dot * falloff * l.Power[0]

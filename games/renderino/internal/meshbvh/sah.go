@@ -1,4 +1,4 @@
-package bvh
+package meshbvh
 
 import (
 	"math"
@@ -17,13 +17,13 @@ import (
 // parent.  (The parent's own surface area divides every candidate's cost
 // equally, so it's left out.)
 //
-// If t.LeafSize is more than 1, elements end up gathered into leaves of up
-// to LeafSize, and the work below each half is per leaf rather than per
-// element.  So a half's cost counts the leaves it needs, and only splits
-// leaving a multiple of LeafSize elements in the first half are considered,
-// so that only the last leaf under any node can be partly full.
+// Elements end up gathered into leaves of up to LeafSize, and the work below
+// each half is per leaf rather than per element.  So a half's cost counts the
+// leaves it needs, and only splits leaving a multiple of LeafSize elements in
+// the first half are considered, so that only the last leaf under any node
+// can be partly full.
 //
-// elements must hold more than max(1, t.LeafSize) elements.
+// elements must hold more than LeafSize elements.
 func (t *Tree) splitSAH(elements []RawElement) (mid int) {
 	n := len(elements)
 
@@ -31,14 +31,13 @@ func (t *Tree) splitSAH(elements []RawElement) (mid int) {
 	t.sahScratch = slices.Grow(t.sahScratch[:0], n)[:n]
 	rightArea := t.sahScratch
 
-	leafSize := max(1, t.LeafSize)
 	numLeaves := func(count int) float32 {
-		return float32((count + leafSize - 1) / leafSize)
+		return float32((count + LeafSize - 1) / LeafSize)
 	}
 
-	bestAxis, bestMid := 0, leafSize*(n/leafSize/2)
+	bestAxis, bestMid := 0, LeafSize*(n/LeafSize/2)
 	if bestMid == 0 {
-		bestMid = leafSize
+		bestMid = LeafSize
 	}
 	bestCost := float32(math.Inf(1))
 	for axis := range 3 {
@@ -59,7 +58,7 @@ func (t *Tree) splitSAH(elements []RawElement) (mid int) {
 				lo[k] = min(lo[k], elements[i-1].Bounds.Lo[k])
 				hi[k] = max(hi[k], elements[i-1].Bounds.Hi[k])
 			}
-			if i%leafSize != 0 {
+			if i%LeafSize != 0 {
 				continue
 			}
 			leftArea := surfaceArea(lo[0], lo[1], lo[2], hi[0], hi[1], hi[2])

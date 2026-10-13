@@ -1,4 +1,4 @@
-package bvh
+package meshbvh
 
 import (
 	"math"

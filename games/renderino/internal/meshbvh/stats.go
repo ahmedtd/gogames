@@ -1,4 +1,4 @@
-package bvh
+package meshbvh
 
 // Stats counts the work done by RayTest calls.  Counting is cheap enough to
 // leave on: RayTest counts in locals and adds them into Stats once per call,

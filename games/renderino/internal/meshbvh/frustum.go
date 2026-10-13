@@ -1,18 +1,19 @@
-package bvh
+package meshbvh
 
 import (
 	"github.com/ahmedtd/gogames/lib/vmath/fvec4"
 )
 
-// FrustumTest invokes checkRef with the index of every scene element whose
-// bounds aren't entirely outside one of planes.  It's conservative: an
-// element's bounds can be reported while lying outside the intersection of
-// the planes, for example near the corners of a frustum.
+// FrustumTest invokes checkRef with the Ref of every leaf whose bounds aren't
+// entirely outside one of planes.  A leaf's Ref indexes t.LeafGroups (see
+// LeafElements).  It's conservative: a leaf's bounds can be reported while
+// lying outside the intersection of the planes, for example near the corners
+// of a frustum.
 //
 // Plane i is (n, d) packed as {n[0], n[1], n[2], d}, and holds the points p
 // with n.p + d >= 0.  The first plane also orders the traversal: children are
 // visited nearest-first along its normal, so that if it's a camera's near
-// plane, elements tend to be reported front-to-back.
+// plane, leaves tend to be reported front-to-back.
 //
 // The traversal's work stack is kept in stack, which may be nil to use a
 // temporary one; as with RayTest, checkRef may make nested calls on the same

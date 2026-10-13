@@ -4,7 +4,7 @@ import (
 	"math"
 	"math/bits"
 
-	"github.com/ahmedtd/gogames/games/renderino/internal/bvh"
+	"github.com/ahmedtd/gogames/games/renderino/internal/meshbvh"
 	"github.com/ahmedtd/gogames/lib/graphics/renderable3"
 	"github.com/ahmedtd/gogames/lib/vmath/fmat44"
 	"github.com/ahmedtd/gogames/lib/vmath/fvec2"
@@ -18,7 +18,7 @@ import (
 // once, and can be shared by any number of MeshInstances.
 type MeshModel struct {
 	Tris []MeshTri
-	Tree *bvh.Tree
+	Tree *meshbvh.Tree
 
 	// The triangles of each of Tree's leaves, gathered into one packet per
 	// leaf: a leaf's ref indexes Packets.
@@ -70,11 +70,12 @@ type TriPacket struct {
 
 // triPacketSize is the number of triangles in a TriPacket, matching the
 // SIMD register width used by TriPacket.RayIntersect (Float32x4 -- 4 lanes).
+// Each packet holds one mesh BVH leaf's triangles.
 //
 // 8 lanes (Float32x8) was tried, and rendered slower: leaves of 8 triangles
 // bound them so loosely that a ray tested over twice as many triangles, and
 // the rasterizer drew a fifth more.
-const triPacketSize = 4
+const triPacketSize = meshbvh.LeafSize
 
 // rayIntersectLanes is TriPacket.RayIntersect done one lane at a time, with
 // MeshTri.RayIntersect.
@@ -99,7 +100,7 @@ func (p *TriPacket) rayIntersectLanes(point, slope fvec4.T, queryLo, queryHi flo
 func NewMeshModel(mesh *renderable3.T) *MeshModel {
 	m := &MeshModel{
 		Tris:     make([]MeshTri, len(mesh.Tris)),
-		Tree:     &bvh.Tree{LeafSize: triPacketSize},
+		Tree:     &meshbvh.Tree{},
 		Vertices: make([]fvec4.T, len(mesh.Vertices)),
 		TriVerts: make([][3]int32, len(mesh.Tris)),
 		Diffuse:  mesh.Diffuse,
@@ -141,7 +142,7 @@ func NewMeshModel(mesh *renderable3.T) *MeshModel {
 			}
 		}
 
-		m.Tree.AddElement(bvh.AABB{Lo: lo, Hi: hi}, i)
+		m.Tree.AddElement(meshbvh.AABB{Lo: lo, Hi: hi}, i)
 
 		if i == 0 {
 			m.Lo, m.Hi = lo, hi
@@ -156,10 +157,12 @@ func NewMeshModel(mesh *renderable3.T) *MeshModel {
 	m.Tree.Build()
 
 	m.Packets = make([]TriPacket, len(m.Tree.LeafGroups))
-	for g, group := range m.Tree.LeafGroups {
+	for g := range m.Tree.LeafGroups {
 		p := &m.Packets[g]
-		p.N = int32(len(group))
-		for lane, ref := range group {
+		elements := m.Tree.LeafElements(g)
+		p.N = int32(len(elements))
+		for lane, e := range elements {
+			ref := e.Ref
 			tri := &m.Tris[ref]
 			p.V0X[lane], p.V0Y[lane], p.V0Z[lane] = tri.V0[0], tri.V0[1], tri.V0[2]
 			p.E1X[lane], p.E1Y[lane], p.E1Z[lane] = tri.E1[0], tri.E1[1], tri.E1[2]
@@ -281,7 +284,7 @@ func (m *MeshInstance) SetModelToWorld(modelToWorld fmat44.T) {
 //
 // The BVH traversal's work stack is kept in stack, and the work done is added
 // into stats; either may be nil.
-func (m *MeshInstance) RayContact(ray Ray, queryLo, queryHi float32, stack *bvh.Stack, stats *RayStats) Contact {
+func (m *MeshInstance) RayContact(ray Ray, queryLo, queryHi float32, stack *meshbvh.Stack, stats *RayStats) Contact {
 	modelPoint := fmat44.MulMV(m.worldToModel, fvec4.T{ray.Point[0], ray.Point[1], ray.Point[2], 1})
 	modelPoint[3] = 0
 	modelSlope := fmat44.MulMV(m.worldToModel, fvec4.T{ray.Slope[0], ray.Slope[1], ray.Slope[2], 0})
@@ -290,9 +293,9 @@ func (m *MeshInstance) RayContact(ray Ray, queryLo, queryHi float32, stack *bvh.
 	hitRef := -1
 	var hitT, hitB1, hitB2 float32
 	hitT = queryHi
-	var bvhStats *bvh.Stats
+	var bvhStats *meshbvh.Stats
 	if stats != nil {
-		bvhStats = &stats.BVH
+		bvhStats = &stats.MeshBVH
 	}
 	var triTests int64
 	m.Model.Tree.RayTest(modelPoint, modelSlope, queryLo, queryHi, stack, bvhStats, func(ref int) float32 {
@@ -374,16 +377,16 @@ func (m *MeshInstance) triContact(ray Ray, ref int, hitT, hitB1, hitB2 float32) 
 //
 // The BVH traversal's work stack is kept in stack, and the work done is added
 // into stats; either may be nil.
-func (m *MeshInstance) RayOccluded(ray Ray, queryLo, queryHi float32, stack *bvh.Stack, stats *RayStats) bool {
+func (m *MeshInstance) RayOccluded(ray Ray, queryLo, queryHi float32, stack *meshbvh.Stack, stats *RayStats) bool {
 	modelPoint := fmat44.MulMV(m.worldToModel, fvec4.T{ray.Point[0], ray.Point[1], ray.Point[2], 1})
 	modelPoint[3] = 0
 	modelSlope := fmat44.MulMV(m.worldToModel, fvec4.T{ray.Slope[0], ray.Slope[1], ray.Slope[2], 0})
 
 	packets := m.Model.Packets
 	hit := false
-	var bvhStats *bvh.Stats
+	var bvhStats *meshbvh.Stats
 	if stats != nil {
-		bvhStats = &stats.BVH
+		bvhStats = &stats.MeshBVH
 	}
 	var triTests int64
 	m.Model.Tree.RayTestUnordered(modelPoint, modelSlope, queryLo, queryHi, stack, bvhStats, func(ref int) float32 {

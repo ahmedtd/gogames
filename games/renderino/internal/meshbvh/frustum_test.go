@@ -1,4 +1,4 @@
-package bvh
+package meshbvh
 
 import (
 	"math/rand/v2"
@@ -117,7 +117,8 @@ func TestBVHFrustumTestNestedStack(t *testing.T) {
 // TestBVHFrustumTestNearestFirst checks that leaves strung out along the
 // first plane's normal are reported nearest-first.  (Ordering is only between
 // siblings, so it's only global when sibling subtrees don't overlap along the
-// normal, as here.)
+// normal, as here.)  Elements within a leaf aren't ordered, so each leaf's
+// refs are sorted before checking the overall order.
 func TestBVHFrustumTestNearestFirst(t *testing.T) {
 	tree := &Tree{}
 	const numBoxes = 100
@@ -130,10 +131,15 @@ func TestBVHFrustumTestNearestFirst(t *testing.T) {
 	tree.Build()
 
 	var got []int
-	tree.FrustumTest([]fvec4.T{{1, 0, 0, 0}}, nil, nil, func(ref int) {
-		got = append(got, ref)
+	tree.FrustumTest([]fvec4.T{{1, 0, 0, 0}}, nil, nil, func(g int) {
+		var refs []int
+		for _, e := range tree.LeafElements(g) {
+			refs = append(refs, e.Ref)
+		}
+		slices.Sort(refs)
+		got = append(got, refs...)
 	})
 	if !slices.IsSorted(got) || len(got) != numBoxes {
-		t.Errorf("FrustumTest reported %v; want all %d leaves in increasing order", got, numBoxes)
+		t.Errorf("FrustumTest reported %v; want all %d elements in increasing order", got, numBoxes)
 	}
 }

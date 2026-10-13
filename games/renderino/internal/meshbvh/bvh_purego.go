@@ -1,14 +1,15 @@
 //go:build !goexperiment.simd || !amd64
 
-package bvh
+package meshbvh
 
 import (
 	"github.com/ahmedtd/gogames/lib/vmath/fvec4"
 )
 
 // RayTest fires a ray (origin point, direction slope) through the BVH tree,
-// invoking checkRef with the index of any scene element whose bounds the ray
-// overlaps for some ray parameter t in [tLo, tHi].
+// invoking checkRef with the Ref of any leaf whose bounds the ray overlaps for
+// some ray parameter t in [tLo, tHi].  A leaf's Ref indexes t.LeafGroups
+// (see LeafElements).
 //
 // checkRef returns a new upper bound for t -- normally the t of the closest
 // hit found so far -- and the rest of the traversal skips any bounds the ray
@@ -130,8 +131,8 @@ func (t *Tree) rayTest(point, slope fvec4.T, tLo, tHi float32, stack *Stack, sta
 
 // bvhLeafRayTest tests a ray against a single AABB directly, using the slab
 // method (https://tavianator.com/2011/ray_box.html), restricted to ray
-// parameters in [tLo, tHi].  It only exists to handle a scene with exactly
-// one element, where the tree's root is that leaf itself and so was never
+// parameters in [tLo, tHi].  It only exists to handle a tree with at most
+// LeafSize elements, where the tree's root is a leaf and so was never
 // tested as part of a parent's child loop.
 func bvhLeafRayTest(lo, hi, point, inverseSlope fvec4.T, tLo, tHi float32) bool {
 	tx1 := (lo[0] - point[0]) * inverseSlope[0]

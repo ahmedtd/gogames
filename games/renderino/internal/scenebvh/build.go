@@ -1,4 +1,4 @@
-package bvh
+package scenebvh
 
 import (
 	"github.com/ahmedtd/gogames/lib/vmath/fvec4"
@@ -67,17 +67,6 @@ type Tree struct {
 	// Build reorders it.
 	Elements []RawElement
 
-	// LeafSize, if more than 1, makes Build gather up to LeafSize elements
-	// into each leaf, rather than giving every element a leaf of its own.  A
-	// leaf's Ref is then an index into LeafGroups, so that a caller can lay
-	// out each group's elements together (e.g. to test them all at once with
-	// SIMD).
-	LeafSize int
-
-	// LeafGroups[g] holds the refs of the elements gathered into the leaf
-	// with Ref g.  Only built when LeafSize > 1.
-	LeafGroups [][]int
-
 	// Scratch space for splitSAH, kept to avoid reallocating it on every
 	// build.
 	sahScratch []float32
@@ -107,7 +96,6 @@ func (t *Tree) Clear() {
 
 	t.Root = nil
 	t.Elements = t.Elements[:0]
-	t.LeafGroups = nil
 }
 
 func (t *Tree) getFreeNode() *Node {
@@ -138,11 +126,6 @@ func (t *Tree) assembleBVHTree(elements []RawElement) *Node {
 		return nil
 	}
 
-	// Base case.  Few enough elements left to gather into one leaf.
-	if t.LeafSize > 1 && len(elements) <= t.LeafSize {
-		return t.makeLeafGroup(elements)
-	}
-
 	// Base case.  A single element just becomes the root -- this will be
 	// absorbed as a child the next level up, or returned directly if it's
 	// the only element in the whole tree.
@@ -168,7 +151,7 @@ func (t *Tree) assembleBVHTree(elements []RawElement) *Node {
 	var groups [bvhBranchingFactor][]RawElement
 	numGroups := 0
 	for _, half := range [2][]RawElement{elements[:mid], elements[mid:]} {
-		if len(half) <= max(1, t.LeafSize) {
+		if len(half) == 1 {
 			groups[numGroups] = half
 			numGroups++
 			continue

@@ -99,10 +99,11 @@ func NewRasterProjection(cam *PinholeCamera, rx, ry int) RasterProjection {
 
 // rasterTilePlanes returns the planes bounding the part of space that lands in
 // raster pixels [srcX, limX) x [srcY, limY), nearer than rasterNear excluded,
-// for use with bvh.Tree.FrustumTest.  toClip carries points into clip space;
-// the planes are in whatever space it carries points from, so passing a
-// model-to-clip transform gives model-space planes.  The near plane comes
-// first, so that FrustumTest visits nearer bounds first.
+// for use with scenebvh.Tree.FrustumTest and meshbvh.Tree.FrustumTest.
+// toClip carries points into clip space; the planes are in whatever space it
+// carries points from, so passing a model-to-clip transform gives model-space
+// planes.  The near plane comes first, so that FrustumTest visits nearer
+// bounds first.
 func rasterTilePlanes(toClip *fmat44.T, srcX, srcY, limX, limY int) [5]fvec4.T {
 	// For W > 0, x = X/W >= srcX exactly when X - srcX*W >= 0, and so on;
 	// each of these is a linear combination of rows of toClip.

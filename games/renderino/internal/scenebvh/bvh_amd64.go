@@ -1,6 +1,6 @@
 //go:build goexperiment.simd && amd64
 
-package bvh
+package scenebvh
 
 import (
 	"math/bits"

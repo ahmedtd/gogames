@@ -1,4 +1,4 @@
-package bvh
+package scenebvh
 
 import (
 	"fmt"
@@ -67,8 +67,8 @@ func randomRay(rng *rand.Rand, sceneExtent float32) testRay {
 //
 // Run with, e.g.:
 //
-//	go test ./games/renderino/internal/bvh/ -bench BenchmarkBVHRayTest -benchmem
-//	GOEXPERIMENT=simd go test ./games/renderino/internal/bvh/ -bench BenchmarkBVHRayTest -benchmem
+//	go test ./games/renderino/internal/scenebvh/ -bench BenchmarkBVHRayTest -benchmem
+//	GOEXPERIMENT=simd go test ./games/renderino/internal/scenebvh/ -bench BenchmarkBVHRayTest -benchmem
 //
 // to compare the portable and SIMD BVH implementations, or add
 // -benchtime 500000x to pin the exact number of queries per sub-benchmark.

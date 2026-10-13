@@ -1,4 +1,4 @@
-package bvh
+package scenebvh
 
 // rayTestEntry is a pending node on RayTest's work stack, along with the ray
 // parameter at which the ray enters its bounds.
