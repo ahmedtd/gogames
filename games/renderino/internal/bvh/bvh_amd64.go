@@ -15,65 +15,6 @@ import (
 // SIMD register width used by bvhRayTest4 (Float32x4 -- 4 lanes).
 const bvhBranchingFactor = 4
 
-type Tree struct {
-	Root *Node
-
-	FreeList                  []*Node
-	AllocationsSinceLastClear int
-
-	// LeafSize, if more than 1, makes BuildFromElements gather up to
-	// LeafSize elements into each leaf, rather than giving every element a
-	// leaf of its own.  A leaf's Ref is then an index into LeafGroups, so
-	// that a caller can lay out each group's elements together (e.g. to test
-	// them all at once with SIMD).
-	LeafSize int
-
-	// LeafGroups[g] holds the refs of the elements gathered into the leaf
-	// with Ref g.  Only built when LeafSize > 1.
-	LeafGroups [][]int
-
-	// Scratch space for splitSAH, kept to avoid reallocating it on every
-	// build.
-	sahScratch []float32
-}
-
-// Clear moves all nodes from the tree to the free list.
-func (t *Tree) Clear() {
-	workStack := []*Node{t.Root}
-	for len(workStack) != 0 {
-		cur := workStack[len(workStack)-1]
-		workStack = workStack[:len(workStack)-1]
-
-		if cur == nil {
-			continue
-		}
-
-		for i := 0; i < cur.NumChildren; i++ {
-			workStack = append(workStack, cur.Children[i])
-		}
-		*cur = Node{}
-
-		t.FreeList = append(t.FreeList, cur)
-	}
-
-	t.AllocationsSinceLastClear = 0
-
-	t.Root = nil
-	t.LeafGroups = nil
-}
-
-func (t *Tree) GetFreeNode() *Node {
-	if len(t.FreeList) == 0 {
-		t.AllocationsSinceLastClear++
-		return &Node{}
-	}
-
-	picked := t.FreeList[len(t.FreeList)-1]
-	t.FreeList = t.FreeList[:len(t.FreeList)-1]
-
-	return picked
-}
-
 // RayTest fires a ray (origin point, direction slope) through the BVH tree,
 // invoking checkRef with the index of any scene element whose bounds the ray
 // overlaps for some ray parameter t in [tLo, tHi].
@@ -211,93 +152,6 @@ func (t *Tree) rayTest(point, slope fvec4.T, tLo, tHi float32, stack *Stack, sta
 	}
 }
 
-func (t *Tree) BuildFromElements(elements []*Node) {
-	t.Root = t.assembleBVHTree(elements)
-}
-
-func (t *Tree) assembleBVHTree(elements []*Node) *Node {
-	// Base case.
-	if len(elements) == 0 {
-		return nil
-	}
-
-	// Base case.  Few enough elements left to gather into one leaf.
-	if t.LeafSize > 1 && len(elements) <= t.LeafSize {
-		return t.makeLeafGroup(elements)
-	}
-
-	// Base case.  A single element just becomes the root -- this will be
-	// absorbed as a child the next level up, or returned directly if it's
-	// the only element in the whole tree.
-	if len(elements) == 1 {
-		return elements[0]
-	}
-
-	// Base case.  Few enough elements left to all become direct children of
-	// one composite node.
-	if len(elements) <= bvhBranchingFactor {
-		return t.makeComposite(elements)
-	}
-
-	// Recursive case.  Split the elements in two using the surface area
-	// heuristic, then split each half in two again the same way, and make
-	// each of the resulting (up to) four groups one child.  This assumes
-	// bvhBranchingFactor == 4.
-	mid := t.splitSAH(elements)
-	var groups [bvhBranchingFactor][]*Node
-	numGroups := 0
-	for _, half := range [2][]*Node{elements[:mid], elements[mid:]} {
-		if len(half) <= max(1, t.LeafSize) {
-			groups[numGroups] = half
-			numGroups++
-			continue
-		}
-		quarterMid := t.splitSAH(half)
-		groups[numGroups] = half[:quarterMid]
-		groups[numGroups+1] = half[quarterMid:]
-		numGroups += 2
-	}
-
-	children := make([]*Node, numGroups)
-	for i, group := range groups[:numGroups] {
-		children[i] = t.assembleBVHTree(group)
-	}
-
-	return t.makeComposite(children)
-}
-
-// makeComposite builds a composite node directly owning the given children
-// (at most bvhBranchingFactor of them), filling in both the per-child
-// struct-of-arrays bounds used by bvhRayTest4 and the node's own overall
-// bounds (the union of its children's), the latter so that this node's
-// bounds are available if it's in turn absorbed as someone else's child.
-func (t *Tree) makeComposite(children []*Node) *Node {
-	node := t.GetFreeNode()
-	node.Type = NodeTypeComposite
-	node.NumChildren = len(children)
-
-	lo := children[0].Lo
-	hi := children[0].Hi
-
-	for i, c := range children {
-		node.Children[i] = c
-		node.ChildLoX[i], node.ChildLoY[i], node.ChildLoZ[i] = c.Lo[0], c.Lo[1], c.Lo[2]
-		node.ChildHiX[i], node.ChildHiY[i], node.ChildHiZ[i] = c.Hi[0], c.Hi[1], c.Hi[2]
-
-		lo[0] = min(lo[0], c.Lo[0])
-		lo[1] = min(lo[1], c.Lo[1])
-		lo[2] = min(lo[2], c.Lo[2])
-		hi[0] = max(hi[0], c.Hi[0])
-		hi[1] = max(hi[1], c.Hi[1])
-		hi[2] = max(hi[2], c.Hi[2])
-	}
-
-	node.Lo = lo
-	node.Hi = hi
-
-	return node
-}
-
 type NodeType int
 
 const (
@@ -325,13 +179,6 @@ type Node struct {
 	Children                     [bvhBranchingFactor]*Node
 	ChildLoX, ChildLoY, ChildLoZ [bvhBranchingFactor]float32
 	ChildHiX, ChildHiY, ChildHiZ [bvhBranchingFactor]float32
-}
-
-func (b *Node) Reset(nodeType NodeType, lo, hi fvec4.T, ref int) {
-	b.Type = nodeType
-	b.Lo = ([4]float32)(lo)
-	b.Hi = ([4]float32)(hi)
-	b.Ref = ref
 }
 
 // bvhRayTest4 tests a ray (given as broadcast point/inverse-slope lanes) against

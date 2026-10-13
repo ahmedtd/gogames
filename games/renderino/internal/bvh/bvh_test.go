@@ -202,21 +202,17 @@ func TestBVHRayTestNestedStack(t *testing.T) {
 	rng := rand.New(rand.NewPCG(3, 0))
 	buildBVH := func(numBoxes int, halfSize float32) *Tree {
 		tree := &Tree{}
-		nodes := make([]*Node, numBoxes)
-		for i := range nodes {
+		for i := range numBoxes {
 			var center fvec4.T
 			for k := range 3 {
 				center[k] = (rng.Float32()*2 - 1) * sceneExtent
 			}
-			nodes[i] = tree.GetFreeNode()
-			nodes[i].Reset(
-				NodeTypeConcrete,
-				fvec4.T{center[0] - halfSize, center[1] - halfSize, center[2] - halfSize, 0},
-				fvec4.T{center[0] + halfSize, center[1] + halfSize, center[2] + halfSize, 0},
-				i,
-			)
+			tree.AddElement(AABB{
+				Lo: fvec4.T{center[0] - halfSize, center[1] - halfSize, center[2] - halfSize, 0},
+				Hi: fvec4.T{center[0] + halfSize, center[1] + halfSize, center[2] + halfSize, 0},
+			}, i)
 		}
-		tree.BuildFromElements(nodes)
+		tree.Build()
 		return tree
 	}
 	outer := buildBVH(17, 2*sceneExtent)

@@ -594,14 +594,11 @@ func (r *Renderer) updateRenderState(ws *WorldState) {
 		r.LatestRenderState.Tree = &bvh.Tree{}
 	}
 	r.LatestRenderState.Tree.Clear()
-	nodes := make([]*bvh.Node, 0, len(r.LatestRenderState.MeshInstances))
 	for i := range r.LatestRenderState.MeshInstances {
 		inst := &r.LatestRenderState.MeshInstances[i]
-		node := r.LatestRenderState.Tree.GetFreeNode()
-		node.Reset(bvh.NodeTypeConcrete, inst.Lo, inst.Hi, i)
-		nodes = append(nodes, node)
+		r.LatestRenderState.Tree.AddElement(bvh.AABB{Lo: inst.Lo, Hi: inst.Hi}, i)
 	}
-	r.LatestRenderState.Tree.BuildFromElements(nodes)
+	r.LatestRenderState.Tree.Build()
 }
 
 func (r *Renderer) Draw(screen *ebiten.Image) {

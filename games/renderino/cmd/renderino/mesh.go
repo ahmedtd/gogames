@@ -108,7 +108,6 @@ func NewMeshModel(mesh *renderable3.T) *MeshModel {
 		m.Vertices[i] = fvec4.T{v[0], v[1], v[2], 1}
 	}
 
-	nodes := make([]*bvh.Node, len(mesh.Tris))
 	for i, tri := range mesh.Tris {
 		var vs [3]fvec4.T
 		for j := range 3 {
@@ -142,9 +141,7 @@ func NewMeshModel(mesh *renderable3.T) *MeshModel {
 			}
 		}
 
-		node := m.Tree.GetFreeNode()
-		node.Reset(bvh.NodeTypeConcrete, lo, hi, i)
-		nodes[i] = node
+		m.Tree.AddElement(bvh.AABB{Lo: lo, Hi: hi}, i)
 
 		if i == 0 {
 			m.Lo, m.Hi = lo, hi
@@ -156,7 +153,7 @@ func NewMeshModel(mesh *renderable3.T) *MeshModel {
 		}
 	}
 
-	m.Tree.BuildFromElements(nodes)
+	m.Tree.Build()
 
 	m.Packets = make([]TriPacket, len(m.Tree.LeafGroups))
 	for g, group := range m.Tree.LeafGroups {

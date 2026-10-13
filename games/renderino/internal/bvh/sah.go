@@ -24,7 +24,7 @@ import (
 // so that only the last leaf under any node can be partly full.
 //
 // elements must hold more than max(1, t.LeafSize) elements.
-func (t *Tree) splitSAH(elements []*Node) (mid int) {
+func (t *Tree) splitSAH(elements []RawElement) (mid int) {
 	n := len(elements)
 
 	// rightArea[i] is the surface area of the bounds of elements[i:].
@@ -44,20 +44,20 @@ func (t *Tree) splitSAH(elements []*Node) (mid int) {
 	for axis := range 3 {
 		sortByCentroid(elements, axis)
 
-		lo, hi := elements[n-1].Lo, elements[n-1].Hi
+		lo, hi := elements[n-1].Bounds.Lo, elements[n-1].Bounds.Hi
 		for i := n - 1; i >= 1; i-- {
 			for k := range 3 {
-				lo[k] = min(lo[k], elements[i].Lo[k])
-				hi[k] = max(hi[k], elements[i].Hi[k])
+				lo[k] = min(lo[k], elements[i].Bounds.Lo[k])
+				hi[k] = max(hi[k], elements[i].Bounds.Hi[k])
 			}
 			rightArea[i] = surfaceArea(lo[0], lo[1], lo[2], hi[0], hi[1], hi[2])
 		}
 
-		lo, hi = elements[0].Lo, elements[0].Hi
+		lo, hi = elements[0].Bounds.Lo, elements[0].Bounds.Hi
 		for i := 1; i < n; i++ {
 			for k := range 3 {
-				lo[k] = min(lo[k], elements[i-1].Lo[k])
-				hi[k] = max(hi[k], elements[i-1].Hi[k])
+				lo[k] = min(lo[k], elements[i-1].Bounds.Lo[k])
+				hi[k] = max(hi[k], elements[i-1].Bounds.Hi[k])
 			}
 			if i%leafSize != 0 {
 				continue
@@ -78,10 +78,10 @@ func (t *Tree) splitSAH(elements []*Node) (mid int) {
 }
 
 // sortByCentroid sorts elements by the centroid of their bounds along axis.
-func sortByCentroid(elements []*Node, axis int) {
-	slices.SortFunc(elements, func(a, b *Node) int {
+func sortByCentroid(elements []RawElement, axis int) {
+	slices.SortFunc(elements, func(a, b RawElement) int {
 		// Comparing Lo+Hi is equivalent to comparing (Lo+Hi)/2.
-		diff := (a.Lo[axis] + a.Hi[axis]) - (b.Lo[axis] + b.Hi[axis])
+		diff := (a.Bounds.Lo[axis] + a.Bounds.Hi[axis]) - (b.Bounds.Lo[axis] + b.Bounds.Hi[axis])
 		switch {
 		case diff < 0:
 			return -1

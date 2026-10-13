@@ -20,9 +20,8 @@ func TestBVHLeafGroups(t *testing.T) {
 		rng := rand.New(rand.NewPCG(3, uint64(numBoxes)))
 
 		tree := &Tree{LeafSize: leafSize}
-		elements := make([]*Node, numBoxes)
 		var los, his [][4]float32
-		for i := range elements {
+		for i := range numBoxes {
 			center := fvec4.T{
 				(rng.Float32()*2 - 1) * sceneExtent,
 				(rng.Float32()*2 - 1) * sceneExtent,
@@ -33,12 +32,11 @@ func TestBVHLeafGroups(t *testing.T) {
 			lo := fvec4.T{center[0] - halfSize, center[1] - halfSize, center[2] - halfSize, 0}
 			hi := fvec4.T{center[0] + halfSize, center[1] + halfSize, center[2] + halfSize, 0}
 
-			elements[i] = &Node{}
-			elements[i].Reset(NodeTypeConcrete, lo, hi, i)
+			tree.AddElement(AABB{Lo: lo, Hi: hi}, i)
 			los = append(los, lo)
 			his = append(his, hi)
 		}
-		tree.BuildFromElements(elements)
+		tree.Build()
 
 		// Leaf-size-aligned splits leave only one group partly full, so
 		// the elements fit in the fewest groups possible.

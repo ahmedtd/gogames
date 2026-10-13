@@ -121,15 +121,13 @@ func TestBVHFrustumTestNestedStack(t *testing.T) {
 func TestBVHFrustumTestNearestFirst(t *testing.T) {
 	tree := &Tree{}
 	const numBoxes = 100
-	nodes := make([]*Node, numBoxes)
 	rng := rand.New(rand.NewPCG(9, 0))
-	for i, x := range rng.Perm(numBoxes) {
+	for _, x := range rng.Perm(numBoxes) {
 		lo := fvec4.T{float32(x), 0, 0, 0}
 		hi := fvec4.T{float32(x) + 0.5, lo[1] + 1, lo[2] + 1, 0}
-		nodes[i] = tree.GetFreeNode()
-		nodes[i].Reset(NodeTypeConcrete, lo, hi, x)
+		tree.AddElement(AABB{Lo: lo, Hi: hi}, x)
 	}
-	tree.BuildFromElements(nodes)
+	tree.Build()
 
 	var got []int
 	tree.FrustumTest([]fvec4.T{{1, 0, 0, 0}}, nil, nil, func(ref int) {

@@ -14,8 +14,7 @@ import (
 func buildRandomBVH(rng *rand.Rand, numBoxes int, sceneExtent float32) *Tree {
 	tree := &Tree{}
 
-	nodes := make([]*Node, numBoxes)
-	for i := range nodes {
+	for i := range numBoxes {
 		center := fvec4.T{
 			(rng.Float32()*2 - 1) * sceneExtent,
 			(rng.Float32()*2 - 1) * sceneExtent,
@@ -24,17 +23,13 @@ func buildRandomBVH(rng *rand.Rand, numBoxes int, sceneExtent float32) *Tree {
 		}
 		halfSize := (0.05 + rng.Float32()*0.45) * sceneExtent / 100
 
-		node := tree.GetFreeNode()
-		node.Reset(
-			NodeTypeConcrete,
-			fvec4.T{center[0] - halfSize, center[1] - halfSize, center[2] - halfSize, 0},
-			fvec4.T{center[0] + halfSize, center[1] + halfSize, center[2] + halfSize, 0},
-			i,
-		)
-		nodes[i] = node
+		tree.AddElement(AABB{
+			Lo: fvec4.T{center[0] - halfSize, center[1] - halfSize, center[2] - halfSize, 0},
+			Hi: fvec4.T{center[0] + halfSize, center[1] + halfSize, center[2] + halfSize, 0},
+		}, i)
 	}
 
-	tree.BuildFromElements(nodes)
+	tree.Build()
 	return tree
 }
 
