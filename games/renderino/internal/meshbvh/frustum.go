@@ -18,20 +18,23 @@ import (
 // The traversal's work stack is kept in stack, which may be nil to use a
 // temporary one; checkRef may make nested calls on the same stack.  The work done is added into stats, which may be nil.
 func (t *Tree) FrustumTest(planes []fvec4.T, stack *Stack, stats *Stats, checkRef func(ref int)) {
-	if t.Root == nil || len(planes) == 0 {
+	if len(t.nodes) == 0 || len(planes) == 0 {
 		return
 	}
 
+	nodes := t.nodes
+	root := &nodes[0]
+
 	// As in RayTest, every node pushed onto the work stack has already been
 	// tested as one of its parent's children, except the root.
-	if t.Root.Type == NodeTypeConcrete {
-		lo, hi := t.Root.Lo, t.Root.Hi
+	if root.Type == NodeTypeConcrete {
+		lo, hi := t.rootBounds.Lo, t.rootBounds.Hi
 		for _, p := range planes {
 			if boxPlaneMax(p, lo[0], lo[1], lo[2], hi[0], hi[1], hi[2]) < 0 {
 				return
 			}
 		}
-		t.reportLeaf(t.Root.Ref, checkRef)
+		t.reportLeaf(root.Ref, checkRef)
 		return
 	}
 
@@ -43,12 +46,12 @@ func (t *Tree) FrustumTest(planes []fvec4.T, stack *Stack, stats *Stats, checkRe
 
 	near := planes[0]
 	base := len(stack.entries)
-	workStack := append(stack.entries, rayTestEntry{node: t.Root})
+	workStack := append(stack.entries, rayTestEntry{node: 0})
 	for len(workStack) != base {
 		entry := workStack[len(workStack)-1]
 		workStack = workStack[:len(workStack)-1]
 
-		node := entry.node
+		node := &nodes[entry.node]
 		switch node.Type {
 		case NodeTypeConcrete:
 			leafRefs++

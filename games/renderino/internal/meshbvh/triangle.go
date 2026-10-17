@@ -99,9 +99,9 @@ type leafTris struct {
 }
 
 // makeLeaf builds a leaf holding the triangles of the elements located by s,
-// with bounds that are the union of theirs, and appends their triangles to
-// t.leaves.
-func (t *Tree) makeLeaf(s span) *Node {
+// and appends their triangles to t.leaves.  It returns the leaf's index in
+// t.nodes, and its bounds (the union of the elements').
+func (t *Tree) makeLeaf(s span) (int32, aabb) {
 	elements := t.elements[s.first : s.first+s.count]
 
 	t.leaves = append(t.leaves, leafTris{N: int32(len(elements))})
@@ -121,11 +121,11 @@ func (t *Tree) makeLeaf(s span) *Node {
 		l.Refs[lane] = int32(e.Ref)
 	}
 
-	node := t.getFreeNode()
+	index := t.newNode()
+	node := &t.nodes[index]
 	node.Type = NodeTypeConcrete
-	node.Lo, node.Hi = lo, hi
 	node.Ref = len(t.leaves) - 1
-	return node
+	return index, aabb{Lo: lo, Hi: hi}
 }
 
 // rayIntersectLanes is leafTris.rayIntersect done one lane at a time, with

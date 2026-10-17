@@ -29,7 +29,7 @@ func randomPlanes(rng *rand.Rand, sceneExtent float32) []fvec4.T {
 func bruteForceFrustumTest(tree *Tree, planes []fvec4.T) []int {
 	var hits []int
 leaves:
-	for i, leaf := range collectLeaves(tree.Root) {
+	for i, leaf := range collectLeaves(tree) {
 		for _, p := range planes {
 			// Test every corner of the leaf's bounds.
 			inside := false

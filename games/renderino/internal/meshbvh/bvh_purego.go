@@ -21,9 +21,12 @@ import (
 // The traversal's work stack is kept in stack, which may be nil to use a
 // temporary one.  The work done is added into stats, which may be nil.
 func (t *Tree) rayTest(point, slope fvec4.T, tLo, tHi float32, stack *Stack, stats *Stats, ordered bool, checkLeaf func(leaf int) float32) {
-	if t.Root == nil {
+	if len(t.nodes) == 0 {
 		return
 	}
+
+	nodes := t.nodes
+	root := &nodes[0]
 
 	inverseSlope := fvec4.T{
 		1.0 / slope[0],
@@ -34,9 +37,9 @@ func (t *Tree) rayTest(point, slope fvec4.T, tLo, tHi float32, stack *Stack, sta
 	// Every node pushed onto workStack below has already been bounds-tested
 	// as one of its parent's children. The root has no parent, so if it's a
 	// leaf, it must be tested directly here instead.
-	if t.Root.Type == NodeTypeConcrete {
-		if bvhLeafRayTest(t.Root.Lo, t.Root.Hi, point, inverseSlope, tLo, tHi) {
-			checkLeaf(t.Root.Ref)
+	if root.Type == NodeTypeConcrete {
+		if bvhLeafRayTest(t.rootBounds.Lo, t.rootBounds.Hi, point, inverseSlope, tLo, tHi) {
+			checkLeaf(root.Ref)
 		}
 		return
 	}
@@ -50,7 +53,7 @@ func (t *Tree) rayTest(point, slope fvec4.T, tLo, tHi float32, stack *Stack, sta
 	// This call's entries go on top of any left by an enclosing RayTest
 	// call, and are all popped by the time workStack is back down to base.
 	base := len(stack.entries)
-	workStack := append(stack.entries, rayTestEntry{node: t.Root, tEnter: tLo})
+	workStack := append(stack.entries, rayTestEntry{node: 0, tEnter: tLo})
 	for len(workStack) != base {
 		entry := workStack[len(workStack)-1]
 		workStack = workStack[:len(workStack)-1]
@@ -61,7 +64,7 @@ func (t *Tree) rayTest(point, slope fvec4.T, tLo, tHi float32, stack *Stack, sta
 			continue
 		}
 
-		node := entry.node
+		node := &nodes[entry.node]
 		switch node.Type {
 		case NodeTypeConcrete:
 			leafRefs++

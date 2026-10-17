@@ -1,9 +1,9 @@
 package meshbvh
 
-// rayTestEntry is a pending node on a query's work stack, along with the ray
-// parameter at which the ray enters its bounds.
+// rayTestEntry is a pending node (an index into Tree.nodes) on a query's work
+// stack, along with the ray parameter at which the ray enters its bounds.
 type rayTestEntry struct {
-	node   *Node
+	node   int32
 	tEnter float32
 }
 

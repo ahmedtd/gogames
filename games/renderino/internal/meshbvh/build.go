@@ -35,22 +35,20 @@ const (
 type Node struct {
 	Type NodeType
 
-	// Valid when Type == NodeTypeConcrete: this node's own bounds, and the
-	// index of its triangles in Tree.leaves.  Also valid (as the union of children's
-	// bounds) when Type == NodeTypeComposite, since this node might in
-	// turn be some other node's child.
-	Lo  fvec4.T
-	Hi  fvec4.T
+	// Valid when Type == NodeTypeConcrete: the index of this node's
+	// triangles in Tree.leaves.  A node's own bounds aren't stored in it,
+	// since traversal only ever tests them as one lane of its parent's
+	// ChildLoX/Y/Z and ChildHiX/Y/Z (or, for the root, Tree.rootBounds).
 	Ref int
 
 	// Valid when Type == NodeTypeComposite.  Children holds NumChildren
-	// child pointers (trailing slots unused).  ChildLoX/Y/Z and
+	// child indices into Tree.nodes (trailing slots unused).  ChildLoX/Y/Z and
 	// ChildHiX/Y/Z store the same children's bounds in struct-of-arrays
 	// form -- one lane per child -- so the amd64/SIMD build can test all of
 	// a node's children with a handful of SIMD ops instead of one test per
 	// child.  The purego build tests them with a plain scalar loop.
 	NumChildren                  int
-	Children                     [bvhBranchingFactor]*Node
+	Children                     [bvhBranchingFactor]int32
 	ChildLoX, ChildLoY, ChildLoZ [bvhBranchingFactor]float32
 	ChildHiX, ChildHiY, ChildHiZ [bvhBranchingFactor]float32
 }
@@ -69,10 +67,14 @@ type span struct {
 }
 
 type Tree struct {
-	Root *Node
+	// nodes holds every node of the tree, which refer to each other by
+	// index.  Build lays them out depth-first, so the root is nodes[0], and
+	// the tree is empty if nodes is.
+	nodes []Node
 
-	FreeList                  []*Node
-	AllocationsSinceLastClear int
+	// rootBounds holds the bounds of nodes[0], the one node with no parent
+	// to hold them.
+	rootBounds aabb
 
 	// triangles holds the triangles added by AddTriangle, indexed by ref.
 	triangles []Triangle
@@ -89,45 +91,21 @@ type Tree struct {
 	sahScratch []float32
 }
 
-// Clear moves all nodes from the tree to the free list, and removes all
-// triangles.  The tree's other storage is kept (with its length reset), so
-// that rebuilding the tree doesn't reallocate it.
+// Clear removes all nodes and triangles from the tree.  The tree's storage is
+// kept (with its length reset), so that rebuilding the tree doesn't
+// reallocate it.
 func (t *Tree) Clear() {
-	workStack := []*Node{t.Root}
-	for len(workStack) != 0 {
-		cur := workStack[len(workStack)-1]
-		workStack = workStack[:len(workStack)-1]
-
-		if cur == nil {
-			continue
-		}
-
-		for i := 0; i < cur.NumChildren; i++ {
-			workStack = append(workStack, cur.Children[i])
-		}
-		*cur = Node{}
-
-		t.FreeList = append(t.FreeList, cur)
-	}
-
-	t.AllocationsSinceLastClear = 0
-
-	t.Root = nil
+	t.nodes = t.nodes[:0]
 	t.triangles = t.triangles[:0]
 	t.elements = t.elements[:0]
 	t.leaves = t.leaves[:0]
 }
 
-func (t *Tree) getFreeNode() *Node {
-	if len(t.FreeList) == 0 {
-		t.AllocationsSinceLastClear++
-		return &Node{}
-	}
-
-	picked := t.FreeList[len(t.FreeList)-1]
-	t.FreeList = t.FreeList[:len(t.FreeList)-1]
-
-	return picked
+// newNode appends a zeroed node to t.nodes, returning its index.  It
+// invalidates pointers into t.nodes.
+func (t *Tree) newNode() int32 {
+	t.nodes = append(t.nodes, Node{})
+	return int32(len(t.nodes) - 1)
 }
 
 // AddTriangle adds a triangle for the next Build to include.  Its ref, as
@@ -140,18 +118,17 @@ func (t *Tree) AddTriangle(tri Triangle) {
 
 // Build builds the tree over the triangles added since the last Clear.
 func (t *Tree) Build() {
-	t.Root = t.assembleBVHTree(span{first: 0, count: len(t.elements)})
+	if len(t.elements) == 0 {
+		return
+	}
+	_, t.rootBounds = t.assembleBVHTree(span{first: 0, count: len(t.elements)})
 }
 
-// assembleBVHTree builds a subtree over the elements located by s.  Once it
-// has split them, it only reorders elements within each part, so each leaf's
-// elements stay contiguous.
-func (t *Tree) assembleBVHTree(s span) *Node {
-	// Base case.
-	if s.count == 0 {
-		return nil
-	}
-
+// assembleBVHTree builds a subtree over the (non-empty) elements located by
+// s, returning the index of its root in t.nodes and its bounds.  Once it has split them, it
+// only reorders elements within each part, so each leaf's elements stay
+// contiguous.
+func (t *Tree) assembleBVHTree(s span) (int32, aabb) {
 	// Base case.  Few enough elements left to gather into one leaf.
 	if s.count <= LeafSize {
 		return t.makeLeaf(s)
@@ -180,30 +157,34 @@ func (t *Tree) assembleBVHTree(s span) *Node {
 		numGroups += 2
 	}
 
-	var children [bvhBranchingFactor]*Node
+	// Take this node's slot before building its children, so that each
+	// subtree is laid out right after its root.
+	node := t.newNode()
+	var children [bvhBranchingFactor]int32
+	var bounds [bvhBranchingFactor]aabb
 	for i, group := range groups[:numGroups] {
-		children[i] = t.assembleBVHTree(group)
+		children[i], bounds[i] = t.assembleBVHTree(group)
 	}
 
-	return t.makeComposite(children[:numGroups])
+	return node, t.fillComposite(node, children[:numGroups], bounds[:numGroups])
 }
 
-// makeComposite builds a composite node directly owning the given children
-// (at most bvhBranchingFactor of them), filling in both the per-child
-// struct-of-arrays bounds used to test them against rays and the node's own
-// overall bounds (the union of its children's), the latter so that this
-// node's bounds are available if it's in turn absorbed as someone else's
-// child.
-func (t *Tree) makeComposite(children []*Node) *Node {
-	node := t.getFreeNode()
+// fillComposite makes t.nodes[index] a composite node directly owning the
+// given children (at most bvhBranchingFactor of them), with the given bounds,
+// filling in the per-child struct-of-arrays bounds used to test them against
+// rays.  It returns the node's own overall bounds (the union of its
+// children's), for its parent to store in turn.
+func (t *Tree) fillComposite(index int32, children []int32, bounds []aabb) aabb {
+	node := &t.nodes[index]
 	node.Type = NodeTypeComposite
 	node.NumChildren = len(children)
 
-	lo := children[0].Lo
-	hi := children[0].Hi
+	lo := bounds[0].Lo
+	hi := bounds[0].Hi
 
-	for i, c := range children {
-		node.Children[i] = c
+	for i, ci := range children {
+		c := &bounds[i]
+		node.Children[i] = ci
 		node.ChildLoX[i], node.ChildLoY[i], node.ChildLoZ[i] = c.Lo[0], c.Lo[1], c.Lo[2]
 		node.ChildHiX[i], node.ChildHiY[i], node.ChildHiZ[i] = c.Hi[0], c.Hi[1], c.Hi[2]
 
@@ -215,8 +196,5 @@ func (t *Tree) makeComposite(children []*Node) *Node {
 		hi[2] = max(hi[2], c.Hi[2])
 	}
 
-	node.Lo = lo
-	node.Hi = hi
-
-	return node
+	return aabb{Lo: lo, Hi: hi}
 }

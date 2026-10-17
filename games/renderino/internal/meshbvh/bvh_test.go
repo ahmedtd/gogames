@@ -159,16 +159,16 @@ func TestBVHLeaves(t *testing.T) {
 			}
 		}
 
-		leaves := collectLeaves(tree.Root)
+		leaves := collectLeaves(tree)
 		if len(leaves) != len(tree.leaves) {
 			t.Fatalf("numTris=%d: tree has %d leaf nodes, want %d", numTris, len(leaves), len(tree.leaves))
 		}
-		for i, node := range leaves {
+		for i, bounds := range leaves {
 			l := &tree.leaves[i]
 			for _, ref := range l.Refs[:l.N] {
 				b := tree.triangles[ref].bounds()
 				for k := range 3 {
-					if b.Lo[k] < node.Lo[k] || b.Hi[k] > node.Hi[k] {
+					if b.Lo[k] < bounds.Lo[k] || b.Hi[k] > bounds.Hi[k] {
 						t.Fatalf("numTris=%d: leaf %d's bounds don't enclose triangle %d", numTris, i, ref)
 					}
 				}
@@ -177,22 +177,26 @@ func TestBVHLeaves(t *testing.T) {
 	}
 }
 
-// collectLeaves maps each leaf node's Ref to the node itself.
-func collectLeaves(root *Node) map[int]*Node {
-	leaves := map[int]*Node{}
-	var walk func(node *Node)
-	walk = func(node *Node) {
-		if node == nil {
-			return
-		}
+// collectLeaves maps each of tree's leaf nodes' Ref to the leaf's bounds,
+// as stored in its parent (or, for a root leaf, in tree.rootBounds).
+func collectLeaves(tree *Tree) map[int]aabb {
+	leaves := map[int]aabb{}
+	if len(tree.nodes) == 0 {
+		return leaves
+	}
+	var walk func(node *Node, bounds aabb)
+	walk = func(node *Node, bounds aabb) {
 		if node.Type == NodeTypeConcrete {
-			leaves[node.Ref] = node
+			leaves[node.Ref] = bounds
 			return
 		}
 		for i := 0; i < node.NumChildren; i++ {
-			walk(node.Children[i])
+			walk(&tree.nodes[node.Children[i]], aabb{
+				Lo: fvec4.T{node.ChildLoX[i], node.ChildLoY[i], node.ChildLoZ[i]},
+				Hi: fvec4.T{node.ChildHiX[i], node.ChildHiY[i], node.ChildHiZ[i]},
+			})
 		}
 	}
-	walk(root)
+	walk(&tree.nodes[0], tree.rootBounds)
 	return leaves
 }
