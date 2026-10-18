@@ -12,3 +12,8 @@ func MulMV(a T, b fvec4.T) fvec4.T {
 		a[12]*b[0] + a[13]*b[1] + a[14]*b[2] + a[15]*b[3],
 	}
 }
+
+// MulMV2 computes a*b and a*c.
+func MulMV2(a T, b, c fvec4.T) (fvec4.T, fvec4.T) {
+	return MulMV(a, b), MulMV(a, c)
+}

@@ -36,3 +36,23 @@ func MulMV(a T, b fvec4.T) fvec4.T {
 	result.Store((*[4]float32)(&out))
 	return out
 }
+
+// MulMV2 computes a*b and a*c, as MulMV does, but loading a's rows only once
+// for both products.
+func MulMV2(a T, b, c fvec4.T) (fvec4.T, fvec4.T) {
+	bv := archsimd.LoadFloat32x4((*[4]float32)(&b))
+	cv := archsimd.LoadFloat32x4((*[4]float32)(&c))
+
+	row0 := archsimd.LoadFloat32x4((*[4]float32)(a[0:4]))
+	row1 := archsimd.LoadFloat32x4((*[4]float32)(a[4:8]))
+	row2 := archsimd.LoadFloat32x4((*[4]float32)(a[8:12]))
+	row3 := archsimd.LoadFloat32x4((*[4]float32)(a[12:16]))
+
+	resultB := row0.Mul(bv).AddPairs(row1.Mul(bv)).AddPairs(row2.Mul(bv).AddPairs(row3.Mul(bv)))
+	resultC := row0.Mul(cv).AddPairs(row1.Mul(cv)).AddPairs(row2.Mul(cv).AddPairs(row3.Mul(cv)))
+
+	outB, outC := fvec4.T{}, fvec4.T{}
+	resultB.Store((*[4]float32)(&outB))
+	resultC.Store((*[4]float32)(&outC))
+	return outB, outC
+}

@@ -62,3 +62,22 @@ func TestMulMV(t *testing.T) {
 		})
 	}
 }
+
+func TestMulMV2(t *testing.T) {
+	a := T{
+		1, 2, 3, 4,
+		5, 6, 7, 8,
+		9, 10, 11, 12,
+		13, 14, 15, 16,
+	}
+	b := fvec4.T{1, -2, 3, 1}
+	c := fvec4.T{0.5, 4, -1, 0}
+
+	gotB, gotC := MulMV2(a, b, c)
+	if diff := cmp.Diff(gotB, MulMV(a, b)); diff != "" {
+		t.Errorf("Bad a*b; diff (-got +want)\n%s", diff)
+	}
+	if diff := cmp.Diff(gotC, MulMV(a, c)); diff != "" {
+		t.Errorf("Bad a*c; diff (-got +want)\n%s", diff)
+	}
+}
