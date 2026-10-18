@@ -66,9 +66,10 @@ func newBenchRenderer(tb testing.TB, pose benchPose) *Renderer {
 // rasterization, and with and without shadows.
 //
 // It also reports per-ray work counts (BVH nodes visited, inner nodes visited
-// -- one SIMD box test each -- and triangle tests) and the fraction of rays
-// that hit something, which change with the algorithm but not with machine
-// speed or noise.
+// -- one SIMD box test each -- triangle tests, and scene BVH leaves visited,
+// each of which is one query of a mesh instance's own tree) and the fraction
+// of rays that hit something, which change with the algorithm but not with
+// machine speed or noise.
 func BenchmarkRenderFrame(b *testing.B) {
 	for _, pose := range benchPoses {
 		for _, primary := range []string{"raytrace", "raster"} {
@@ -95,6 +96,7 @@ func BenchmarkRenderFrame(b *testing.B) {
 					b.ReportMetric(float64(nodesVisited)/rays, "nodes/ray")
 					b.ReportMetric(float64(innerVisited)/rays, "inner/ray")
 					b.ReportMetric(float64(stats.MeshBVH.TriTests)/rays, "tris/ray")
+					b.ReportMetric(float64(stats.SceneBVH.LeafRefs)/rays, "sleaves/ray")
 					b.ReportMetric(float64(stats.RayHits)/rays, "hitfrac")
 					b.ReportMetric(float64(stats.ShadowRays)/rays, "shadows/ray")
 					b.ReportMetric(float64(stats.Raster.Tris)/rays, "rtris/ray")
