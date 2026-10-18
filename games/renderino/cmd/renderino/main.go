@@ -909,9 +909,9 @@ func (r *RenderState) rasterizeTile(tile *RenderTile) {
 		model.Tree.FrustumTest(modelPlanes[:], &stacks.Mesh, &tile.Stats.MeshBVH, func(triRef int) {
 			tv := &model.TriVerts[triRef]
 			clip := [3]fvec4.T{
-				fmat44.MulMV(*toClip, model.Vertices[tv[0]]),
-				fmat44.MulMV(*toClip, model.Vertices[tv[1]]),
-				fmat44.MulMV(*toClip, model.Vertices[tv[2]]),
+				fmat44.MulMV(toClip, model.Vertices[tv[0]]),
+				fmat44.MulMV(toClip, model.Vertices[tv[1]]),
+				fmat44.MulMV(toClip, model.Vertices[tv[2]]),
 			}
 			tri := &model.Tris[triRef]
 			attrs := RasterAttrs{
@@ -950,7 +950,7 @@ func (r *RenderState) RenderTile(tile *RenderTile, rx, ry int) {
 			for s, cameraRay := range tile.CameraRays[pixelIndex*samples : (pixelIndex+1)*samples] {
 				ray := Ray{
 					Point: r.Camera.Center,
-					Slope: fmat44.MulMV(r.Camera.ApertureToWorld, cameraRay),
+					Slope: fmat44.MulMV(&r.Camera.ApertureToWorld, cameraRay),
 				}
 				var p RGBPower
 				if r.RasterPrimary {

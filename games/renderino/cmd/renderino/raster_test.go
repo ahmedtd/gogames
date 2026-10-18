@@ -31,7 +31,7 @@ func cameraSampleRay(cam *PinholeCamera, px, py, s, samples, rx, ry int) Ray {
 	apertureRay := cam.ApertureRay(float32(px)+ox, float32(py)+oy, rx, ry)
 	return Ray{
 		Point: cam.Center,
-		Slope: fmat44.MulMV(cam.ApertureToWorld, apertureRay),
+		Slope: fmat44.MulMV(&cam.ApertureToWorld, apertureRay),
 	}
 }
 

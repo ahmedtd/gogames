@@ -55,7 +55,7 @@ func TestMulMV(t *testing.T) {
 	}
 	for _, tc := range testCases {
 		t.Run(fmt.Sprintf("%v*%v", tc.A, tc.B), func(t *testing.T) {
-			got := MulMV(tc.A, tc.B)
+			got := MulMV(&tc.A, tc.B)
 			if diff := cmp.Diff(got, tc.Want); diff != "" {
 				t.Errorf("Bad result; diff (-got +want)\n%s", diff)
 			}
@@ -73,11 +73,11 @@ func TestMulMV2(t *testing.T) {
 	b := fvec4.T{1, -2, 3, 1}
 	c := fvec4.T{0.5, 4, -1, 0}
 
-	gotB, gotC := MulMV2(a, b, c)
-	if diff := cmp.Diff(gotB, MulMV(a, b)); diff != "" {
+	gotB, gotC := MulMV2(&a, b, c)
+	if diff := cmp.Diff(gotB, MulMV(&a, b)); diff != "" {
 		t.Errorf("Bad a*b; diff (-got +want)\n%s", diff)
 	}
-	if diff := cmp.Diff(gotC, MulMV(a, c)); diff != "" {
+	if diff := cmp.Diff(gotC, MulMV(&a, c)); diff != "" {
 		t.Errorf("Bad a*c; diff (-got +want)\n%s", diff)
 	}
 }

@@ -4,7 +4,7 @@ package fmat44
 
 import "github.com/ahmedtd/gogames/lib/vmath/fvec4"
 
-func MulMV(a T, b fvec4.T) fvec4.T {
+func MulMV(a *T, b fvec4.T) fvec4.T {
 	return fvec4.T{
 		a[0]*b[0] + a[1]*b[1] + a[2]*b[2] + a[3]*b[3],
 		a[4]*b[0] + a[5]*b[1] + a[6]*b[2] + a[7]*b[3],
@@ -14,6 +14,6 @@ func MulMV(a T, b fvec4.T) fvec4.T {
 }
 
 // MulMV2 computes a*b and a*c.
-func MulMV2(a T, b, c fvec4.T) (fvec4.T, fvec4.T) {
+func MulMV2(a *T, b, c fvec4.T) (fvec4.T, fvec4.T) {
 	return MulMV(a, b), MulMV(a, c)
 }

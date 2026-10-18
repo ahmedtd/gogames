@@ -144,7 +144,7 @@ func (m *MeshInstance) SetModelToWorld(modelToWorld fmat44.T) {
 		if i&4 != 0 {
 			corner[2] = m.Model.Hi[2]
 		}
-		w := fmat44.MulMV(modelToWorld, corner)
+		w := fmat44.MulMV(&modelToWorld, corner)
 		w[3] = 0
 
 		if i == 0 {
@@ -168,7 +168,7 @@ func (m *MeshInstance) SetModelToWorld(modelToWorld fmat44.T) {
 // The BVH traversal's work stack is kept in stack, and the work done is added
 // into stats; either may be nil.
 func (m *MeshInstance) RayContact(ray Ray, queryLo, queryHi float32, stack *meshbvh.Stack, stats *RayStats) Contact {
-	modelPoint, modelSlope := fmat44.MulMV2(m.worldToModel,
+	modelPoint, modelSlope := fmat44.MulMV2(&m.worldToModel,
 		fvec4.T{ray.Point[0], ray.Point[1], ray.Point[2], 1},
 		fvec4.T{ray.Slope[0], ray.Slope[1], ray.Slope[2], 0})
 	modelPoint[3] = 0
@@ -240,7 +240,7 @@ func (m *MeshInstance) triContact(ray Ray, ref int, hitT, hitB1, hitB2 float32) 
 // The BVH traversal's work stack is kept in stack, and the work done is added
 // into stats; either may be nil.
 func (m *MeshInstance) RayOccluded(ray Ray, queryLo, queryHi float32, stack *meshbvh.Stack, stats *RayStats) bool {
-	modelPoint, modelSlope := fmat44.MulMV2(m.worldToModel,
+	modelPoint, modelSlope := fmat44.MulMV2(&m.worldToModel,
 		fvec4.T{ray.Point[0], ray.Point[1], ray.Point[2], 1},
 		fvec4.T{ray.Slope[0], ray.Slope[1], ray.Slope[2], 0})
 	modelPoint[3] = 0

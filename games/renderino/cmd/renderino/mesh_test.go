@@ -137,9 +137,9 @@ func TestMeshInstanceMatchesBruteForce(t *testing.T) {
 
 		// Brute force in model space.
 		w2m := fmat44.Inverse(modelToWorld)
-		mp := fmat44.MulMV(w2m, fvec4.T{origin[0], origin[1], origin[2], 1})
+		mp := fmat44.MulMV(&w2m, fvec4.T{origin[0], origin[1], origin[2], 1})
 		mp[3] = 0
-		ms := fmat44.MulMV(w2m, ray.Slope)
+		ms := fmat44.MulMV(&w2m, ray.Slope)
 		wantHit := false
 		wantT := float32(1000)
 		for i := range model.Tris {

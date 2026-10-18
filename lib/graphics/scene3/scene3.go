@@ -94,7 +94,7 @@ func (tri *Triangle) Render(camMatrix fmat44.T, target *RenderTarget) {
 	// Compute normalized device coordinates for the triangle.
 	var ndcs [3]fvec4.T
 	for i := range 3 {
-		ndcs[i] = fmat44.MulMV(camMatrix, fvec4.T{tri.Vs[i][0], tri.Vs[i][1], tri.Vs[i][2], 1.0})
+		ndcs[i] = fmat44.MulMV(&camMatrix, fvec4.T{tri.Vs[i][0], tri.Vs[i][1], tri.Vs[i][2], 1.0})
 		ndcs[i][3] = 1
 	}
 

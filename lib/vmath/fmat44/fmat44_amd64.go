@@ -12,7 +12,7 @@ import (
 // so we load all four rows and b into registers, multiply row-wise, and use
 // two rounds of horizontal adds to reduce all four row.b dot products down to
 // a single result register, rather than reducing each row individually.
-func MulMV(a T, b fvec4.T) fvec4.T {
+func MulMV(a *T, b fvec4.T) fvec4.T {
 	bv := archsimd.LoadFloat32x4((*[4]float32)(&b))
 
 	row0 := archsimd.LoadFloat32x4((*[4]float32)(a[0:4]))
@@ -39,7 +39,7 @@ func MulMV(a T, b fvec4.T) fvec4.T {
 
 // MulMV2 computes a*b and a*c, as MulMV does, but loading a's rows only once
 // for both products.
-func MulMV2(a T, b, c fvec4.T) (fvec4.T, fvec4.T) {
+func MulMV2(a *T, b, c fvec4.T) (fvec4.T, fvec4.T) {
 	bv := archsimd.LoadFloat32x4((*[4]float32)(&b))
 	cv := archsimd.LoadFloat32x4((*[4]float32)(&c))
 
