@@ -4,6 +4,7 @@ go 1.25.0
 
 require (
 	github.com/barnex/fmath v0.0.0-20150108074215-ec9671f295c2
+	github.com/gogpu/gogpu v0.54.0
 	github.com/gogpu/gputypes v0.8.0
 	github.com/gogpu/wgpu v0.34.5
 	github.com/google/go-cmp v0.6.0
@@ -32,3 +33,11 @@ require (
 )
 
 tool golang.org/x/tools/cmd/stringer
+
+replace github.com/gogpu/wgpu => github.com/ahmedtd/wgpu v0.34.5-rt
+
+replace github.com/gogpu/naga => github.com/ahmedtd/naga v0.20.3-rt
+
+replace github.com/gogpu/gputypes => github.com/ahmedtd/gputypes v0.8.0-rt
+
+replace github.com/gogpu/gogpu => github.com/ahmedtd/gogpu v0.54.0-rt
