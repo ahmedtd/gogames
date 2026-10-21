@@ -5,13 +5,11 @@ import (
 	"embed"
 	"encoding/binary"
 	"fmt"
-	"image"
 	"io/fs"
 	"log"
 	"log/slog"
 	"math"
 	"os"
-	"time"
 	"unsafe"
 
 	"github.com/ahmedtd/gogames/games/wgputest/cmd/windowtest/rtexample"
@@ -108,6 +106,8 @@ func run() error {
 			}
 		}
 
+		ex.animationTime += 0.005
+
 		if err := ex.render(dc.SurfaceView(), wgpuDevice, wgpuQueue); err != nil {
 			slog.ErrorContext(ctx, "Error while rendering", slog.Any("err", err))
 		}
@@ -119,12 +119,6 @@ func run() error {
 
 	return nil
 }
-
-// Same size as the Rust example test (ExampleTestParams width/height).
-const (
-	width  = 1024
-	height = 768
-)
 
 // Uniforms mirrors the Rust struct and the WGSL Uniforms block.
 type Uniforms struct {
@@ -329,14 +323,6 @@ type Example struct {
 	release []interface{ Release() }
 }
 
-func requiredFeatures() gputypes.Features {
-	return gputypes.Features(gputypes.FeatureRayQuery)
-}
-
-// func requiredLimits() gputypes.Limits {
-// 	return wgpu.LimitsWithMinimumAccelerationStructureValues(gputypes.DefaultLimits())
-// }
-
 func initExample(width, height uint32, format gputypes.TextureFormat, device *wgpu.Device, queue *wgpu.Queue) (*Example, error) {
 	const sideCount = 8
 
@@ -539,110 +525,6 @@ func (ex *Example) Release() {
 		ex.release[i].Release()
 	}
 	ex.release = nil
-}
-
-// Target is an offscreen color render target plus a readback buffer. It plays
-// the role of the surface texture in the Rust example framework's test mode,
-// which renders one frame into an RGBA8 texture and compares it to a
-// screenshot.
-type Target struct {
-	Width, Height uint32
-	Format        gputypes.TextureFormat
-	Texture       *wgpu.Texture
-	View          *wgpu.TextureView
-
-	readback    *wgpu.Buffer
-	bytesPerRow uint32
-}
-
-// NewTarget creates a render target of the given size and format. format must
-// be a 4-byte-per-texel format (RGBA8Unorm or RGBA8UnormSrgb).
-func NewTarget(device *wgpu.Device, width, height uint32, format gputypes.TextureFormat) (*Target, error) {
-	tex, err := device.CreateTexture(&wgpu.TextureDescriptor{
-		Label:         "destination",
-		Size:          wgpu.Extent3D{Width: width, Height: height, DepthOrArrayLayers: 1},
-		MipLevelCount: 1,
-		SampleCount:   1,
-		Dimension:     gputypes.TextureDimension2D,
-		Format:        format,
-		Usage:         gputypes.TextureUsageRenderAttachment | gputypes.TextureUsageCopySrc,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("create target texture: %w", err)
-	}
-	view, err := device.CreateTextureView(tex, nil)
-	if err != nil {
-		tex.Release()
-		return nil, fmt.Errorf("create target view: %w", err)
-	}
-	bytesPerRow := alignUp(width*4, 256)
-	buf, err := device.CreateBuffer(&wgpu.BufferDescriptor{
-		Label: "image map buffer",
-		Size:  uint64(bytesPerRow) * uint64(height),
-		Usage: wgpu.BufferUsageCopyDst | wgpu.BufferUsageMapRead,
-	})
-	if err != nil {
-		view.Release()
-		tex.Release()
-		return nil, fmt.Errorf("create readback buffer: %w", err)
-	}
-	return &Target{
-		Width: width, Height: height, Format: format,
-		Texture: tex, View: view,
-		readback: buf, bytesPerRow: bytesPerRow,
-	}, nil
-}
-
-// Release frees the target's GPU resources.
-func (t *Target) Release() {
-	t.readback.Release()
-	t.View.Release()
-	t.Texture.Release()
-}
-
-// Read copies the target texture to the readback buffer, waits for the GPU,
-// and returns the pixels. The bytes are returned as stored in the texture;
-// for an sRGB format they are already sRGB-encoded, which is what the Rust
-// framework writes to its PNGs.
-func (t *Target) Read(device *wgpu.Device) (*image.NRGBA, error) {
-	encoder, err := device.CreateCommandEncoder(&wgpu.CommandEncoderDescriptor{Label: "readback"})
-	if err != nil {
-		return nil, fmt.Errorf("create encoder: %w", err)
-	}
-	encoder.CopyTextureToBuffer(t.Texture, t.readback, []wgpu.BufferTextureCopy{{
-		BufferLayout: wgpu.ImageDataLayout{BytesPerRow: t.bytesPerRow, RowsPerImage: t.Height},
-		TextureBase:  wgpu.ImageCopyTexture{Texture: t.Texture},
-		Size:         wgpu.Extent3D{Width: t.Width, Height: t.Height, DepthOrArrayLayers: 1},
-	}})
-	cmd, err := encoder.Finish()
-	if err != nil {
-		return nil, fmt.Errorf("finish encoder: %w", err)
-	}
-	if _, err := device.Queue().Submit(cmd); err != nil {
-		return nil, fmt.Errorf("submit: %w", err)
-	}
-
-	size := t.readback.Size()
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	if err := t.readback.Map(ctx, wgpu.MapModeRead, 0, size); err != nil {
-		return nil, fmt.Errorf("map readback: %w", err)
-	}
-	rng, err := t.readback.MappedRange(0, size)
-	if err != nil {
-		_ = t.readback.Unmap()
-		return nil, fmt.Errorf("mapped range: %w", err)
-	}
-	src := rng.Bytes()
-	img := image.NewNRGBA(image.Rect(0, 0, int(t.Width), int(t.Height)))
-	rowBytes := int(t.Width) * 4
-	for y := range int(t.Height) {
-		copy(img.Pix[y*img.Stride:y*img.Stride+rowBytes], src[y*int(t.bytesPerRow):])
-	}
-	if err := t.readback.Unmap(); err != nil {
-		return nil, fmt.Errorf("unmap: %w", err)
-	}
-	return img, nil
 }
 
 func alignUp(n, a uint32) uint32 { return (n + a - 1) / a * a }
