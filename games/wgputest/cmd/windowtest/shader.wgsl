@@ -118,9 +118,6 @@ var acc_struct: acceleration_structure;
 
 @fragment
 fn fs_main(vertex: VertexOutput) -> @location(0) vec4<f32> {
-
-    var color =  vec4<f32>(vertex.tex_coords, 0.0, 1.0);
-
 	let d = vertex.tex_coords * 2.0 - 1.0;
 
 	let origin = (uniforms.view_inv * vec4<f32>(0.0,0.0,0.0,1.0)).xyz;
@@ -155,12 +152,38 @@ fn fs_main(vertex: VertexOutput) -> @location(0) vec4<f32> {
 
         let material = geometry.material;
 
-        color = vec4<f32>(material.albedo, 1.0);
+        let global_contact_point = origin + intersection.t * direction;
+        let global_normal : vec3<f32> = normalize(intersection.object_to_world * normal);
 
-        if(intersection.instance_custom_data == 1u){
-            color = vec4<f32>(normal, 1.0);
+        var light_contribution = f32(0.0);
+
+        // Ambient lighting term.
+        light_contribution += 0.3;
+
+        // TODO: There is still some weirdness --- triangles that rotate from
+        // occluded to not-occluded "pop" very suddenly between dark and light.
+        // I would expect that they should instead smoothly transition due to
+        // the dot product in the lighting term.
+
+        // Fire an occlusion ray towards the directional light.
+        let directional_light_direction = normalize(vec3<f32>(0, -1, 0));
+        if (dot(global_normal, directional_light_direction) > 0.0) {
+            var directional_shadow_rq: ray_query;
+            rayQueryInitialize(
+                &directional_shadow_rq,
+                acc_struct,
+                RayDesc(0u, 0xFFu, 0.001, 1000.0, global_contact_point+global_normal*0.001, directional_light_direction),
+            );
+            rayQueryProceed(&directional_shadow_rq);
+            let directional_shadow_intersection = rayQueryGetCommittedIntersection(&directional_shadow_rq);
+            if (directional_shadow_intersection.kind == RAY_QUERY_INTERSECTION_NONE) {
+                // Contact point is visible to this light
+                light_contribution += 0.7 * dot(global_normal, directional_light_direction);
+            }
         }
+
+        return vec4<f32>(light_contribution * material.albedo.x, light_contribution * material.albedo.y, light_contribution*material.albedo.z, 1);
     }
 
-    return color;
+    return vec4<f32>(0, 0, 0, 1);
 }

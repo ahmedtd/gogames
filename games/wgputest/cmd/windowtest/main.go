@@ -47,32 +47,6 @@ func run() error {
 			WithRequiredLimits(wgpu.LimitsWithMinimumAccelerationStructureValues(gputypes.DefaultLimits())),
 	)
 
-	// device, cleanup, err := rtexample.InitDevice(requiredFeatures(), requiredLimits())
-	// if err != nil {
-	// 	return err
-	// }
-	// defer cleanup()
-
-	// var flags gputypes.InstanceFlags
-	// if os.Getenv("GOGPU_DEBUG") != "" {
-	// 	flags |= gputypes.InstanceFlagsDebug
-	// 	wgpu.SetLogger(slog.New(validationHandler{slog.NewTextHandler(os.Stderr, nil)}))
-	// }
-
-	// The Rust example framework renders to an sRGB surface (Example::SRGB
-	// defaults to true), and its test mode uses Rgba8UnormSrgb.
-	// target, err := NewTarget(wgpuDevice, width, height, gputypes.TextureFormatRGBA8UnormSrgb)
-	// if err != nil {
-	// 	return err
-	// }
-	// defer target.Release()
-
-	// ex, err := initExample(target.Width, target.Height, target.Format, wgpuDevice, wgpuQueue)
-	// if err != nil {
-	// 	return err
-	// }
-	// defer ex.Release()
-
 	var ex *Example
 
 	app.OnDraw(func(dc *gogpu.Context) {
