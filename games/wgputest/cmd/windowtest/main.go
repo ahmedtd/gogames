@@ -17,6 +17,7 @@ import (
 	"github.com/ahmedtd/gogames/lib/vmath/faffinetransform3"
 	"github.com/ahmedtd/gogames/lib/vmath/fmat33"
 	"github.com/ahmedtd/gogames/lib/vmath/fvec3"
+	"github.com/barnex/fmath"
 	"github.com/gogpu/gogpu"
 	"github.com/gogpu/gogpu/gpu/types"
 	"github.com/gogpu/gputypes"
@@ -74,8 +75,6 @@ func run() error {
 			var err error
 			ex, err = initExample(
 				ctx,
-				uint32(dc.Width()),
-				uint32(dc.Height()),
 				app.DeviceProvider().SurfaceFormat(),
 				wgpuDevice,
 				wgpuQueue,
@@ -307,14 +306,14 @@ func loadScene(device *wgpu.Device, queue *wgpu.Queue) (*SceneComponents, error)
 
 // Example holds the state the Rust Example struct holds.
 type Example struct {
-	uniforms   Uniforms
-	uniformBuf *wgpu.Buffer
+	uniforms        Uniforms
+	animationTime   float32
+	sceneComponents *SceneComponents
 
+	uniformBuf      *wgpu.Buffer
 	tlas            *wgpu.Tlas
 	pipeline        *wgpu.RenderPipeline
 	bindGroup       *wgpu.BindGroup
-	sceneComponents *SceneComponents
-	animationTime   float32
 	shaderModule    *wgpu.ShaderModule
 	bindGroupLayout *wgpu.BindGroupLayout
 	pipelineLayout  *wgpu.PipelineLayout
@@ -348,7 +347,7 @@ func (ex *Example) Release() {
 	}
 }
 
-func initExample(ctx context.Context, width, height uint32, format gputypes.TextureFormat, device *wgpu.Device, queue *wgpu.Queue) (returnExample *Example, returnErr error) {
+func initExample(ctx context.Context, format gputypes.TextureFormat, device *wgpu.Device, queue *wgpu.Queue) (returnExample *Example, returnErr error) {
 	const sideCount = 8
 
 	ex := &Example{}
@@ -511,6 +510,7 @@ func (ex *Example) render(ctx context.Context, view *wgpu.TextureView, device *w
 			}
 		}
 	}
+	ex.uniforms.CamPos[2] = 5 * fmath.Sin(ex.animationTime)
 
 	if err := ex.uploadUniforms(ctx, device); err != nil {
 		return fmt.Errorf("while uploading uniforms: %w", err)
@@ -615,15 +615,6 @@ func CreateBufferInit(device *wgpu.Device, label string, contents []byte, usage 
 		return nil, fmt.Errorf("unmap: %w", err)
 	}
 	return buf, nil
-}
-
-// F32Bytes returns v as little-endian bytes (bytemuck::cast_slice).
-func F32Bytes(v []float32) []byte {
-	b := make([]byte, 0, 4*len(v))
-	for _, f := range v {
-		b = binary.LittleEndian.AppendUint32(b, math.Float32bits(f))
-	}
-	return b
 }
 
 // U32Bytes returns v as little-endian bytes (bytemuck::cast_slice).
