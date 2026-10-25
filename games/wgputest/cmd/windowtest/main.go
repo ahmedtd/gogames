@@ -14,6 +14,7 @@ import (
 
 	"github.com/ahmedtd/gogames/games/wgputest/cmd/windowtest/rtexample"
 	"github.com/ahmedtd/gogames/lib/graphics/pinholecamera"
+	"github.com/ahmedtd/gogames/lib/vmath/faffinetransform3"
 	"github.com/ahmedtd/gogames/lib/vmath/fmat33"
 	"github.com/ahmedtd/gogames/lib/vmath/fvec3"
 	"github.com/gogpu/gogpu"
@@ -114,7 +115,7 @@ func (u Uniforms) bytes() []byte {
 	out = u.ViewInverse.AppendBytes(out)
 	out = u.ProjInverse.AppendBytes(out)
 	out = fvec3.AppendWGPUBytes(&u.CamPos, out)
-	out = fmat33.AppendColumnMajorBytes(&u.CamApertureToWorld, out)
+	out = fmat33.AppendWGPUBytes(&u.CamApertureToWorld, out)
 	out = binary.LittleEndian.AppendUint32(out, math.Float32bits(u.CamApertureLength))
 	out = binary.LittleEndian.AppendUint32(out, math.Float32bits(u.CamApertureX))
 	out = binary.LittleEndian.AppendUint32(out, math.Float32bits(u.CamApertureY))
@@ -339,7 +340,7 @@ func initExample(width, height uint32, format gputypes.TextureFormat, device *wg
 	keep(sceneComponents)
 
 	camera := &pinholecamera.PinholeCamera{
-		Center:          fvec3.T{0, 0, 2.5},
+		Center:          fvec3.T{0, 0, 0},
 		ApertureToWorld: fmat33.Identity(),
 		Aperture:        fvec3.T{0.02, 0.018, 0.012},
 	}
@@ -354,8 +355,8 @@ func initExample(width, height uint32, format gputypes.TextureFormat, device *wg
 		CamPos:             camera.Center,
 		CamApertureToWorld: camera.ApertureToWorld,
 		CamApertureLength:  camera.Aperture[0],
-		CamApertureX:       camera.Aperture[1],
-		CamApertureY:       camera.Aperture[2],
+		CamApertureX:       camera.Aperture[1] * 2,
+		CamApertureY:       camera.Aperture[2] * 2,
 	}
 
 	ex.uniformBuf, err = CreateBufferInit(device, "Uniform Buffer", ex.uniforms.bytes(),
@@ -482,15 +483,14 @@ func (ex *Example) render(view *wgpu.TextureView, device *wgpu.Device, queue *wg
 				fx := float32(x)/float32(sideCount-1)*2.0 - 1.0
 				fy := float32(y)/float32(sideCount-1)*2.0 - 1.0
 
-				transform := rtexample.RotationTranslationEulerXYZ(
-					animTime*0.5*0.342,
-					animTime*0.5*0.254,
-					animTime*0.5*0.832+math.Pi,
-					rtexample.Vec3{fx * dist, fy * dist, -14.0},
+				transform := faffinetransform3.Compose(
+					faffinetransform3.Translate(fvec3.T{fx * dist, fy * dist, 0}),
+					faffinetransform3.AxisAngle(fvec3.T{0, 0, 1}, animTime),
 				)
+
 				ex.tlas.SetInstance(x+y*sideCount, wgpu.NewTlasInstance(
 					blases[blasIndex],
-					transform.Rows3x4(),
+					transform.As3x4(),
 					u32(blasIndex),
 					0xff,
 				))

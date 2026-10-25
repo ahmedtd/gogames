@@ -84,6 +84,14 @@ func (t T) NormalTransformMat() fmat33.T {
 	return fmat33.Transpose(fmat33.Inverse(t.Linear))
 }
 
+func (t T) As3x4() [12]float32 {
+	return [12]float32{
+		t.Linear[0], t.Linear[1], t.Linear[2], t.Offset[0],
+		t.Linear[3], t.Linear[4], t.Linear[5], t.Offset[1],
+		t.Linear[6], t.Linear[7], t.Linear[8], t.Offset[2],
+	}
+}
+
 func TransformPoint(a T, b fvec3.T) fvec3.T {
 	return fvec3.AddVV(fmat33.MulMV(a.Linear, b), a.Offset)
 }

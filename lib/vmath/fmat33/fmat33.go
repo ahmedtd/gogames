@@ -189,7 +189,7 @@ func Orthonormalize(m T) T {
 	}
 }
 
-func AppendColumnMajorBytes(m *T, b []byte) []byte {
+func AppendWGPUBytes(m *T, b []byte) []byte {
 	// mat3x3<f32> AlignOf=16 SizeOf=48 (WGPU Spec)
 	b = binary.LittleEndian.AppendUint32(b, math.Float32bits(m[0]))
 	b = binary.LittleEndian.AppendUint32(b, math.Float32bits(m[3]))

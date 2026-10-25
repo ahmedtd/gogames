@@ -79,8 +79,8 @@ struct Uniforms {
     cam_aperture_to_world: mat3x3<f32>,
 
     cam_aperture_length: f32,
-    cam_aperture_x: f32,
-    cam_aperture_y: f32,
+    cam_aperture_width: f32,
+    cam_aperture_height: f32,
 };
 
 struct Vertex {
@@ -132,70 +132,102 @@ var acc_struct: acceleration_structure;
 fn fs_main(vertex: VertexOutput) -> @location(0) vec4<f32> {
 	let d = vertex.tex_coords * 2.0 - 1.0;
 
-	let origin = (uniforms.view_inv * vec4<f32>(0.0,0.0,0.0,1.0)).xyz;
-	let temp = uniforms.proj_inv * vec4<f32>(d.x, d.y, 1.0, 1.0);
-	let direction = (uniforms.view_inv * vec4<f32>(normalize(temp.xyz), 0.0)).xyz;
+    let cam_fov_horizontal = f32(radians(360));
+    let cam_fov_vertical = f32(radians(180));
+    let theta = vertex.tex_coords.x * cam_fov_horizontal;
+    let phi = vertex.tex_coords.y * cam_fov_vertical;
+    let ray_global_direction = vec3<f32>(
+        sin(phi)*cos(theta),
+        sin(phi)*sin(theta),
+        cos(phi),
+    );
+
+    let ray_horizontal_angle = d.x * cam_fov_horizontal / 2;
+    let ray_vertical_angle = d.x * cam_fov_vertical / 2;
+
+
+    let ray_global_origin = uniforms.cam_pos;
+    //let ray_aperture_direction = normalize(vec3<f32>(
+    //    sqrt(1 - sin(ray_horizontal_angle)),
+    //    sin(d.x * cam_fov_horizontal / 2),
+    //    sin(d.y * cam),
+    //));
+    //let ray_global_direction = uniforms.cam_aperture_to_world * ray_aperture_direction;
 
     var rq: ray_query;
-    rayQueryInitialize(&rq, acc_struct, RayDesc(0u, 0xFFu, 0.1, 200.0, origin, direction));
+    rayQueryInitialize(&rq, acc_struct, RayDesc(0u, 0xFFu, 0.1, 200.0, ray_global_origin, ray_global_direction));
     rayQueryProceed(&rq);
 
     let intersection = rayQueryGetCommittedIntersection(&rq);
-    if (intersection.kind != RAY_QUERY_INTERSECTION_NONE) {
-        let instance = instances[intersection.instance_custom_data];
-        let geometry = geometries[intersection.geometry_index + instance.first_geometry];
-
-        let index_offset = geometry.first_index;
-        let vertex_offset = instance.first_vertex;
-
-        let first_index_index = intersection.primitive_index * 3u + index_offset;
-
-        let v_0 = vertices[vertex_offset+indices[first_index_index+0u]];
-        let v_1 = vertices[vertex_offset+indices[first_index_index+1u]];
-        let v_2 = vertices[vertex_offset+indices[first_index_index+2u]];
-
-        let bary = vec3<f32>(1.0 - intersection.barycentrics.x - intersection.barycentrics.y, intersection.barycentrics);
-
-        let pos = v_0.pos * bary.x + v_1.pos * bary.y + v_2.pos * bary.z;
-        let normal_raw = v_0.normal * bary.x + v_1.normal * bary.y + v_2.normal * bary.z;
-        let uv = v_0.uv * bary.x + v_1.uv * bary.y + v_2.uv * bary.z;
-
-        let normal = normalize(normal_raw);
-
-        let material = geometry.material;
-
-        let global_contact_point = origin + intersection.t * direction;
-        let global_normal : vec3<f32> = normalize(intersection.object_to_world * normal);
-
-        var light_contribution = f32(0.0);
-
-        // Ambient lighting term.
-        light_contribution += 0.3;
-
-        // TODO: There is still some weirdness --- triangles that rotate from
-        // occluded to not-occluded "pop" very suddenly between dark and light.
-        // I would expect that they should instead smoothly transition due to
-        // the dot product in the lighting term.
-
-        // Fire an occlusion ray towards the directional light.
-        let directional_light_direction = normalize(vec3<f32>(0, -1, 0));
-        if (dot(global_normal, directional_light_direction) > 0.0) {
-            var directional_shadow_rq: ray_query;
-            rayQueryInitialize(
-                &directional_shadow_rq,
-                acc_struct,
-                RayDesc(0u, 0xFFu, 0.001, 1000.0, global_contact_point+global_normal*0.001, directional_light_direction),
-            );
-            rayQueryProceed(&directional_shadow_rq);
-            let directional_shadow_intersection = rayQueryGetCommittedIntersection(&directional_shadow_rq);
-            if (directional_shadow_intersection.kind == RAY_QUERY_INTERSECTION_NONE) {
-                // Contact point is visible to this light
-                light_contribution += 0.7 * dot(global_normal, directional_light_direction);
-            }
+    if (intersection.kind != RAY_QUERY_INTERSECTION_TRIANGLE) {
+        // No hit -- render some sky.
+        // if (ray_global_direction.z < 0.0) {
+        //     return vec4<f32>(0, 0, 0, 1);
+        // }
+        var color = vec4<f32>(0,0,0,1);
+        if (ray_global_direction.x > -0.1 && ray_global_direction.x < 0.1) {
+            color.x = 1.0;
         }
-
-        return vec4<f32>(light_contribution * material.albedo.x, light_contribution * material.albedo.y, light_contribution*material.albedo.z, 1);
+        if (ray_global_direction.y > -0.1 && ray_global_direction.y < 0.1) {
+            color.y = 1.0;
+        }
+        if (ray_global_direction.z > -0.1 && ray_global_direction.z < 0.1) {
+            color.z = 1.0;
+        }
+        return color;
     }
 
-    return vec4<f32>(0, 0, 0, 1);
+    let instance = instances[intersection.instance_custom_data];
+    let geometry = geometries[intersection.geometry_index + instance.first_geometry];
+
+    let index_offset = geometry.first_index;
+    let vertex_offset = instance.first_vertex;
+
+    let first_index_index = intersection.primitive_index * 3u + index_offset;
+
+    let v_0 = vertices[vertex_offset+indices[first_index_index+0u]];
+    let v_1 = vertices[vertex_offset+indices[first_index_index+1u]];
+    let v_2 = vertices[vertex_offset+indices[first_index_index+2u]];
+
+    let bary = vec3<f32>(1.0 - intersection.barycentrics.x - intersection.barycentrics.y, intersection.barycentrics);
+
+    let pos = v_0.pos * bary.x + v_1.pos * bary.y + v_2.pos * bary.z;
+    let normal_raw = v_0.normal * bary.x + v_1.normal * bary.y + v_2.normal * bary.z;
+    let uv = v_0.uv * bary.x + v_1.uv * bary.y + v_2.uv * bary.z;
+
+    let normal = normalize(normal_raw);
+
+    let material = geometry.material;
+
+    let global_contact_point = ray_global_origin + intersection.t * ray_global_direction;
+    let global_normal : vec3<f32> = normalize(intersection.object_to_world * normal);
+
+    var light_contribution = f32(0.0);
+
+    // Ambient lighting term.
+    light_contribution += 0.3;
+
+    // TODO: There is still some weirdness --- triangles that rotate from
+    // occluded to not-occluded "pop" very suddenly between dark and light.
+    // I would expect that they should instead smoothly transition due to
+    // the dot product in the lighting term.
+
+    // Fire an occlusion ray towards the directional light.
+    let directional_light_direction = normalize(vec3<f32>(0, 0, 1));
+    if (dot(global_normal, directional_light_direction) > 0.0) {
+        var directional_shadow_rq: ray_query;
+        rayQueryInitialize(
+            &directional_shadow_rq,
+            acc_struct,
+            RayDesc(0u, 0xFFu, 0.001, 1000.0, global_contact_point+global_normal*0.001, directional_light_direction),
+        );
+        rayQueryProceed(&directional_shadow_rq);
+        let directional_shadow_intersection = rayQueryGetCommittedIntersection(&directional_shadow_rq);
+        if (directional_shadow_intersection.kind == RAY_QUERY_INTERSECTION_NONE) {
+            // Contact point is visible to this light
+            light_contribution += 0.7 * dot(global_normal, directional_light_direction);
+        }
+    }
+
+    return vec4<f32>(light_contribution * material.albedo.x, light_contribution * material.albedo.y, light_contribution*material.albedo.z, 1);
 }
