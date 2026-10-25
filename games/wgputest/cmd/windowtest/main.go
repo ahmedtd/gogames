@@ -536,6 +536,9 @@ func (ex *Example) render(ctx context.Context, view *wgpu.TextureView, device *w
 	}
 	rpass.SetPipeline(ex.pipeline)
 	rpass.SetBindGroup(0, ex.bindGroup, nil)
+	// There are no vertex buffers bound, so we are just invoking the vertex
+	// stage three times with indices [0, 1, 2].  The vertex shader maps these
+	// two a large triangle that covers the viewport.
 	rpass.Draw(gputypes.DrawArgs{VertexCount: 3, InstanceCount: 1})
 	if err := rpass.End(); err != nil {
 		return fmt.Errorf("end render pass: %w", err)

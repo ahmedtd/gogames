@@ -5,21 +5,32 @@ struct VertexOutput {
     @location(0) tex_coords: vec2<f32>,
 };
 
+// The vertex shader does not actually read vertex data from any buffer.  It's
+// called with a Draw(VertexCount: 3), which results in the vertex shader being
+// called three times, each with a different vertex index.
+//
+// The vertex shader statically converts those three indices into a single triangle
+// that covers the entire viewport (bufferless fullscreen triangle).  Half of the
+// fragments will be discarded from overdraw.  The visible fragments will have
+// tex_coords range from (0,0) at the top left of the window, to (1,1) at the bottom
+// right of the window.
 @vertex
 fn vs_main(@builtin(vertex_index) vertex_index: u32) -> VertexOutput {
     var result: VertexOutput;
-    let x = i32(vertex_index) / 2;
-    let y = i32(vertex_index) & 1;
-    let tc = vec2<f32>(
-        f32(x) * 2.0,
-        f32(y) * 2.0
-    );
-    result.position = vec4<f32>(
-        tc.x * 2.0 - 1.0,
-        1.0 - tc.y * 2.0,
-        0.0, 1.0
-    );
-    result.tex_coords = tc;
+
+    if vertex_index == 0 {
+        result.tex_coords = vec2<f32>(0, 0);
+        result.position = vec4<f32>(-1, 1, 0, 1);
+    }
+    if vertex_index == 1 {
+        result.tex_coords = vec2<f32>(0, 2);
+        result.position = vec4<f32>(-1, -3, 0, 1);
+    }
+    if vertex_index == 2 {
+        result.tex_coords = vec2<f32>(2, 0);
+        result.position = vec4<f32>(3, 1, 0, 1);
+    }
+    
     return result;
 }
 
