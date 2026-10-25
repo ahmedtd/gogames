@@ -69,6 +69,18 @@ struct RayIntersection {
 struct Uniforms {
     view_inv: mat4x4<f32>,
     proj_inv: mat4x4<f32>,
+
+    // Camera position in world space.
+    cam_pos: vec3<f32>,
+    // Orthonormal transform from aperture space to world space.
+    // * Column 0 is the eye vector
+    // * Column 1 the left vector
+    // * Column 2 the up vector.
+    cam_aperture_to_world: mat3x3<f32>,
+
+    cam_aperture_length: f32,
+    cam_aperture_x: f32,
+    cam_aperture_y: f32,
 };
 
 struct Vertex {

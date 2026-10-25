@@ -1,6 +1,9 @@
 package fmat33
 
 import (
+	"encoding/binary"
+	"math"
+
 	"github.com/ahmedtd/gogames/lib/vmath/fvec2"
 
 	"github.com/barnex/fmath"
@@ -184,4 +187,21 @@ func Orthonormalize(m T) T {
 		u1y, u2y, u3y,
 		u1z, u2z, u3z,
 	}
+}
+
+func AppendColumnMajorBytes(m *T, b []byte) []byte {
+	// mat3x3<f32> AlignOf=16 SizeOf=48 (WGPU Spec)
+	b = binary.LittleEndian.AppendUint32(b, math.Float32bits(m[0]))
+	b = binary.LittleEndian.AppendUint32(b, math.Float32bits(m[3]))
+	b = binary.LittleEndian.AppendUint32(b, math.Float32bits(m[6]))
+	b = binary.LittleEndian.AppendUint32(b, math.Float32bits(m[1]))
+	b = binary.LittleEndian.AppendUint32(b, math.Float32bits(m[3]))
+	b = binary.LittleEndian.AppendUint32(b, math.Float32bits(m[7]))
+	b = binary.LittleEndian.AppendUint32(b, math.Float32bits(m[2]))
+	b = binary.LittleEndian.AppendUint32(b, math.Float32bits(m[5]))
+	b = binary.LittleEndian.AppendUint32(b, math.Float32bits(m[8]))
+	// We have written 36 bytes, pad out to 48
+	padding := make([]byte, 48-36)
+	b = append(b, padding...)
+	return b
 }

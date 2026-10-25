@@ -27,7 +27,10 @@ import (
 	"github.com/ahmedtd/gogames/embeddedassets/kenneyprototypekit"
 	"github.com/ahmedtd/gogames/games/renderino/internal/meshbvh"
 	"github.com/ahmedtd/gogames/games/renderino/internal/scenebvh"
+	"github.com/ahmedtd/gogames/lib/graphics/pinholecamera"
+	"github.com/ahmedtd/gogames/lib/vmath/fmat33"
 	"github.com/ahmedtd/gogames/lib/vmath/fmat44"
+	"github.com/ahmedtd/gogames/lib/vmath/fvec3"
 	"github.com/ahmedtd/gogames/lib/vmath/fvec4"
 
 	"github.com/barnex/fmath"
@@ -216,10 +219,10 @@ func NewRenderer(numRenderThreads int) (*Renderer, error) {
 // state, but without anything that needs a running ebiten game (UI fonts,
 // cursor position), so that benchmarks can render frames off-screen.
 func newHeadlessRenderer(numRenderThreads int) (*Renderer, error) {
-	camera := &PinholeCamera{
-		Center:          fvec4.T{-10, 0, 10},
-		ApertureToWorld: fmat44.Identity(),
-		Aperture:        fvec4.T{0.02, 0.018, 0.012},
+	camera := &pinholecamera.PinholeCamera{
+		Center:          fvec3.T{-10, 0, 10},
+		ApertureToWorld: fmat33.Identity(),
+		Aperture:        fvec3.T{0.02, 0.018, 0.012},
 	}
 
 	renderGroup := &errgroup.Group{}
@@ -342,6 +345,22 @@ func newHeadlessRenderer(numRenderThreads int) (*Renderer, error) {
 	}
 
 	return r, nil
+}
+
+// axisAngleMat33 builds a 3x3 rotation matrix of angle around axis u.
+func axisAngleMat33(u fvec3.T, angle float32) fmat33.T {
+	c := fmath.Cos(angle)
+	s := fmath.Sin(angle)
+
+	ux := u[0]
+	uy := u[1]
+	uz := u[2]
+
+	return fmat33.T{
+		ux*ux*(1-c) + c, ux*uy*(1-c) - uz*s, ux*uz*(1-c) + uy*s,
+		ux*uy*(1-c) + uz*s, uy*uy*(1-c) + c, uy*uz*(1-c) - ux*s,
+		ux*uz*(1-c) - uy*s, uy*uz*(1-c) + ux*s, uz*uz*(1-c) + c,
+	}
 }
 
 // axisAngleMat44 builds a 4x4 rotation matrix (a 3x3 rotation embedded in the
@@ -541,10 +560,11 @@ func (r *Renderer) Update() error {
 	cursorDeltaY := r.LatestWorldState.CursorY - r.PreviousWorldState.CursorY
 	rotateAngleX := float32(cursorDeltaX) * 0.005
 	rotateAngleY := float32(cursorDeltaY) * 0.005
-	rotateX := axisAngleMat44(fvec4.T{0.0, 0.0, 1.0}, -rotateAngleX)
-	rotateY := axisAngleMat44(r.LatestRenderState.Camera.Left(), rotateAngleY)
-	r.LatestRenderState.Camera.ApertureToWorld = fmat44.Orthonormalize(fmat44.MulMM(fmat44.MulMM(rotateX, rotateY),
-		r.LatestRenderState.Camera.ApertureToWorld))
+	rotateX := axisAngleMat33(fvec3.T{0.0, 0.0, 1.0}, -rotateAngleX)
+	rotateY := axisAngleMat33(r.LatestRenderState.Camera.Left(), rotateAngleY)
+	r.LatestRenderState.Camera.ApertureToWorld = fmat33.Orthonormalize(
+		fmat33.MulMM(fmat33.MulMM(rotateX, rotateY), r.LatestRenderState.Camera.ApertureToWorld),
+	)
 
 	r.updateRenderState(r.LatestWorldState)
 
@@ -850,7 +870,7 @@ type WorldState struct {
 }
 
 type RenderState struct {
-	Camera *PinholeCamera
+	Camera *pinholecamera.PinholeCamera
 
 	MaxDepth int
 
@@ -948,9 +968,11 @@ func (r *RenderState) RenderTile(tile *RenderTile, rx, ry int) {
 
 			var sum RGBPower
 			for s, cameraRay := range tile.CameraRays[pixelIndex*samples : (pixelIndex+1)*samples] {
+				slope := fmat33.MulMV(r.Camera.ApertureToWorld, cameraRay)
+
 				ray := Ray{
-					Point: r.Camera.Center,
-					Slope: fmat44.MulMV(&r.Camera.ApertureToWorld, cameraRay),
+					Point: fvec4.T{r.Camera.Center[0], r.Camera.Center[1], r.Camera.Center[2], 0},
+					Slope: fvec4.T{slope[0], slope[1], slope[2], 0},
 				}
 				var p RGBPower
 				if r.RasterPrimary {
@@ -1172,86 +1194,6 @@ func (r *Ray) Eval(t float32) fvec4.T {
 }
 
 type RGBPower [3]float32
-
-type PinholeCamera struct {
-	Center          fvec4.T
-	ApertureToWorld fmat44.T
-	Aperture        fvec4.T
-}
-
-// FitAperture sizes the camera's aperture to match the ratio of an rx by ry
-// image.
-func (c *PinholeCamera) FitAperture(rx, ry int) {
-	// Horizontal FOV is 80 degrees, with vertical FOV adjusted to match.
-	c.Aperture[0] = 1
-	c.Aperture[1] = fmath.Sin(40.0 / 180.0 * 2.0 * fmath.Pi)
-	c.Aperture[2] = c.Aperture[1] / float32(rx) * float32(ry)
-}
-
-// ApertureRay returns the unit direction, in aperture space, of the camera ray
-// through raster position (x, y) of an rx by ry image.  Raster positions are
-// in pixels, with x increasing rightwards and y downwards from the top-left
-// corner of the image; pixel (px, py) covers [px, px+1) x [py, py+1).
-func (c *PinholeCamera) ApertureRay(x, y float32, rx, ry int) fvec4.T {
-	return fvec4.Normalize(fvec4.T{
-		c.Aperture[0],
-		(1.0 - 2.0*x/float32(rx)) * c.Aperture[1],
-		(1.0 - 2.0*y/float32(ry)) * c.Aperture[2],
-	})
-}
-
-func (c *PinholeCamera) Eye() fvec4.T {
-	return fvec4.T{
-		c.ApertureToWorld[0],
-		c.ApertureToWorld[4],
-		c.ApertureToWorld[8],
-	}
-}
-
-func (c *PinholeCamera) Left() fvec4.T {
-	return fvec4.T{
-		c.ApertureToWorld[1],
-		c.ApertureToWorld[5],
-		c.ApertureToWorld[9],
-	}
-}
-
-func (c *PinholeCamera) Up() fvec4.T {
-	return fvec4.T{
-		c.ApertureToWorld[2],
-		c.ApertureToWorld[6],
-		c.ApertureToWorld[10],
-	}
-}
-
-func (c *PinholeCamera) SetEye(newEye fvec4.T) {
-	c.setEyeDirect(fvec4.Normalize(newEye))
-	c.setUpDirect(fvec4.Normalize(fvec4.Reject(c.Eye(), c.Up())))
-	c.setLeftDirect(fvec4.CProd3(c.Up(), c.Eye()))
-}
-
-func (c *PinholeCamera) SetUp(newUp fvec4.T) {
-	c.setUpDirect(fvec4.Normalize(fvec4.Reject(c.Eye(), newUp)))
-	c.setLeftDirect(fvec4.CProd3(c.Up(), c.Eye()))
-}
-
-func (c *PinholeCamera) setEyeDirect(newEye fvec4.T) {
-	c.ApertureToWorld[0] = newEye[0]
-	c.ApertureToWorld[4] = newEye[1]
-	c.ApertureToWorld[8] = newEye[2]
-}
-
-func (c *PinholeCamera) setLeftDirect(newLeft fvec4.T) {
-	c.ApertureToWorld[1] = newLeft[0]
-	c.ApertureToWorld[5] = newLeft[1]
-	c.ApertureToWorld[9] = newLeft[2]
-}
-
-func (c *PinholeCamera) setUpDirect(newUp fvec4.T) {
-	c.ApertureToWorld[2] = newUp[0]
-	c.ApertureToWorld[6] = newUp[1]
-	c.ApertureToWorld[10] = newUp[2]
-}
 
 type ContactMode int
 

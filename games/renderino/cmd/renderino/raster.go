@@ -3,9 +3,11 @@ package main
 import (
 	"math"
 
+	"github.com/ahmedtd/gogames/lib/graphics/pinholecamera"
 	"github.com/ahmedtd/gogames/lib/graphics/renderable3"
 	"github.com/ahmedtd/gogames/lib/vmath/fmat44"
 	"github.com/ahmedtd/gogames/lib/vmath/fvec2"
+	"github.com/ahmedtd/gogames/lib/vmath/fvec3"
 	"github.com/ahmedtd/gogames/lib/vmath/fvec4"
 )
 
@@ -73,7 +75,7 @@ type RasterProjection struct {
 // NewRasterProjection builds the projection matching cam's camera rays (see
 // PinholeCamera.ApertureRay) for an rx by ry image.  cam's aperture must
 // already be fitted to the image.
-func NewRasterProjection(cam *PinholeCamera, rx, ry int) RasterProjection {
+func NewRasterProjection(cam *pinholecamera.PinholeCamera, rx, ry int) RasterProjection {
 	// A point at aperture-space offset d = (eye, left, up) . (p - Center) from
 	// the camera lies on the camera ray through raster x where
 	//
@@ -84,15 +86,15 @@ func NewRasterProjection(cam *PinholeCamera, rx, ry int) RasterProjection {
 	eye, left, up := cam.Eye(), cam.Left(), cam.Up()
 	kx := cam.Aperture[0] / cam.Aperture[1]
 	ky := cam.Aperture[0] / cam.Aperture[2]
-	rowX := fvec4.MulVS(fvec4.SubVV(eye, fvec4.MulVS(left, kx)), float32(rx)/2)
-	rowY := fvec4.MulVS(fvec4.SubVV(eye, fvec4.MulVS(up, ky)), float32(ry)/2)
+	rowX := fvec3.MulVS(fvec3.SubVV(eye, fvec3.MulVS(left, kx)), float32(rx)/2)
+	rowY := fvec3.MulVS(fvec3.SubVV(eye, fvec3.MulVS(up, ky)), float32(ry)/2)
 	c := cam.Center
 	return RasterProjection{
 		WorldToClip: fmat44.T{
-			rowX[0], rowX[1], rowX[2], -dot3(rowX, c),
-			rowY[0], rowY[1], rowY[2], -dot3(rowY, c),
+			rowX[0], rowX[1], rowX[2], -fvec3.IProd(rowX, c),
+			rowY[0], rowY[1], rowY[2], -fvec3.IProd(rowY, c),
 			0, 0, 0, 0,
-			eye[0], eye[1], eye[2], -dot3(eye, c),
+			eye[0], eye[1], eye[2], -fvec3.IProd(eye, c),
 		},
 	}
 }

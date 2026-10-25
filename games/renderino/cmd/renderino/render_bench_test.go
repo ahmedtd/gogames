@@ -10,22 +10,22 @@ import (
 	"runtime"
 	"testing"
 
-	"github.com/ahmedtd/gogames/lib/vmath/fmat44"
-	"github.com/ahmedtd/gogames/lib/vmath/fvec4"
+	"github.com/ahmedtd/gogames/lib/vmath/fmat33"
+	"github.com/ahmedtd/gogames/lib/vmath/fvec3"
 )
 
 // benchPose is a fixed camera placement for BenchmarkRenderFrame.
 type benchPose struct {
 	name   string
-	center fvec4.T // Camera position.
-	target fvec4.T // Point the camera looks at.
+	center fvec3.T // Camera position.
+	target fvec3.T // Point the camera looks at.
 }
 
 var benchPoses = []benchPose{
 	// Up against the middle ballista, so that most rays hit its mesh.
-	{name: "closeup", center: fvec4.T{-3.2, 0, 2}, target: fvec4.T{0, 0, 1.2}},
+	{name: "closeup", center: fvec3.T{-3.2, 0, 2}, target: fvec3.T{0, 0, 1.2}},
 	// All three ballistas, with boids scattered across the ground plane.
-	{name: "overview", center: fvec4.T{-16, 0, 9}, target: fvec4.T{0, 0, 1}},
+	{name: "overview", center: fvec3.T{-16, 0, 9}, target: fvec3.T{0, 0, 1}},
 }
 
 // The benchmark resolution matches the app's default window size.
@@ -47,8 +47,8 @@ func newBenchRenderer(tb testing.TB, pose benchPose) *Renderer {
 
 	cam := r.LatestRenderState.Camera
 	cam.Center = pose.center
-	cam.ApertureToWorld = fmat44.Identity()
-	cam.SetEye(fvec4.SubVV(pose.target, pose.center))
+	cam.ApertureToWorld = fmat33.Identity()
+	cam.SetEye(fvec3.SubVV(pose.target, pose.center))
 
 	return r
 }

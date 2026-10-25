@@ -13,6 +13,9 @@ import (
 	"unsafe"
 
 	"github.com/ahmedtd/gogames/games/wgputest/cmd/windowtest/rtexample"
+	"github.com/ahmedtd/gogames/lib/graphics/pinholecamera"
+	"github.com/ahmedtd/gogames/lib/vmath/fmat33"
+	"github.com/ahmedtd/gogames/lib/vmath/fvec3"
 	"github.com/gogpu/gogpu"
 	"github.com/gogpu/gogpu/gpu/types"
 	"github.com/gogpu/gputypes"
@@ -94,14 +97,35 @@ func run() error {
 	return nil
 }
 
-// Uniforms mirrors the Rust struct and the WGSL Uniforms block.
+// Uniforms corresponds to the Uniforms struct defined in the wgsl shader.
 type Uniforms struct {
 	ViewInverse rtexample.Mat4
 	ProjInverse rtexample.Mat4
+
+	CamPos             fvec3.T
+	CamApertureToWorld fmat33.T
+	CamApertureLength  float32
+	CamApertureX       float32
+	CamApertureY       float32
 }
 
 func (u Uniforms) bytes() []byte {
-	return u.ProjInverse.AppendBytes(u.ViewInverse.AppendBytes(nil))
+	out := []byte{}
+	out = u.ViewInverse.AppendBytes(out)
+	out = u.ProjInverse.AppendBytes(out)
+	out = fvec3.AppendWGPUBytes(&u.CamPos, out)
+	out = fmat33.AppendColumnMajorBytes(&u.CamApertureToWorld, out)
+	out = binary.LittleEndian.AppendUint32(out, math.Float32bits(u.CamApertureLength))
+	out = binary.LittleEndian.AppendUint32(out, math.Float32bits(u.CamApertureX))
+	out = binary.LittleEndian.AppendUint32(out, math.Float32bits(u.CamApertureY))
+	// The overall alignment of the Uniforms struct is 16, so we need to round
+	// the size up to a multiple of 16.
+	targetSize := alignUp(uint32(len(out)), 16)
+	paddingSize := int(targetSize) - len(out)
+	padding := make([]byte, paddingSize)
+	out = append(out, padding...)
+
+	return out
 }
 
 // SceneComponents mirrors the Rust struct of the same name.
@@ -314,9 +338,25 @@ func initExample(width, height uint32, format gputypes.TextureFormat, device *wg
 	ex.sceneComponents = sceneComponents
 	keep(sceneComponents)
 
+	camera := &pinholecamera.PinholeCamera{
+		Center:          fvec3.T{0, 0, 2.5},
+		ApertureToWorld: fmat33.Identity(),
+		Aperture:        fvec3.T{0.02, 0.018, 0.012},
+	}
+
 	view := rtexample.LookAtRH(rtexample.Vec3{0.0, 0.0, 2.5}, rtexample.Vec3{}, rtexample.Vec3{0, 1, 0})
 	proj := rtexample.PerspectiveRH(rtexample.Radians(59.0), float32(width)/float32(height), 0.001, 1000.0)
-	ex.uniforms = Uniforms{ViewInverse: view.Inverse(), ProjInverse: proj.Inverse()}
+
+	ex.uniforms = Uniforms{
+		ViewInverse: view.Inverse(),
+		ProjInverse: proj.Inverse(),
+
+		CamPos:             camera.Center,
+		CamApertureToWorld: camera.ApertureToWorld,
+		CamApertureLength:  camera.Aperture[0],
+		CamApertureX:       camera.Aperture[1],
+		CamApertureY:       camera.Aperture[2],
+	}
 
 	ex.uniformBuf, err = CreateBufferInit(device, "Uniform Buffer", ex.uniforms.bytes(),
 		wgpu.BufferUsageUniform|wgpu.BufferUsageCopyDst)

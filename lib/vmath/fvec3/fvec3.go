@@ -1,6 +1,8 @@
 package fvec3
 
 import (
+	"encoding/binary"
+	"math"
 	"math/rand/v2"
 
 	"github.com/barnex/fmath"
@@ -173,4 +175,13 @@ func GaussianUnitVec3Distribution(normal T, mid float32, rng *rand.Rand) T {
 
 	// Dead code.
 	return T{0, 0, 0}
+}
+
+func AppendWGPUBytes(m *T, b []byte) []byte {
+	// vec3<f32> AlignOf=16 SizeOf=12 (WGPU Spec)
+	b = binary.LittleEndian.AppendUint32(b, math.Float32bits(m[0]))
+	b = binary.LittleEndian.AppendUint32(b, math.Float32bits(m[1]))
+	b = binary.LittleEndian.AppendUint32(b, math.Float32bits(m[2]))
+	b = append(b, 0, 0, 0, 0) // WGPU vec3<f32> has 16-byte alignment.
+	return b
 }

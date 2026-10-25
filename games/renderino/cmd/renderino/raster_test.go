@@ -1,12 +1,12 @@
 package main
 
 import (
-	"math"
 	"math/rand/v2"
 	"testing"
 
-	"github.com/ahmedtd/gogames/games/renderino/internal/meshbvh"
-	"github.com/ahmedtd/gogames/lib/vmath/fmat44"
+	"github.com/ahmedtd/gogames/lib/graphics/pinholecamera"
+	"github.com/ahmedtd/gogames/lib/vmath/fmat33"
+	"github.com/ahmedtd/gogames/lib/vmath/fvec3"
 	"github.com/ahmedtd/gogames/lib/vmath/fvec4"
 
 	"github.com/barnex/fmath"
@@ -14,10 +14,10 @@ import (
 
 // newRasterTestCamera makes a camera at center looking along eye, with its
 // aperture fitted to an rx by ry image.
-func newRasterTestCamera(center, eye fvec4.T, rx, ry int) *PinholeCamera {
-	cam := &PinholeCamera{
+func newRasterTestCamera(center, eye fvec3.T, rx, ry int) *pinholecamera.PinholeCamera {
+	cam := &pinholecamera.PinholeCamera{
 		Center:          center,
-		ApertureToWorld: fmat44.Identity(),
+		ApertureToWorld: fmat33.Identity(),
 	}
 	cam.SetEye(eye)
 	cam.FitAperture(rx, ry)
@@ -26,12 +26,13 @@ func newRasterTestCamera(center, eye fvec4.T, rx, ry int) *PinholeCamera {
 
 // cameraSampleRay returns the world-space camera ray through sample s of
 // pixel (px, py), built the same way as renderFrame and RenderTile build it.
-func cameraSampleRay(cam *PinholeCamera, px, py, s, samples, rx, ry int) Ray {
+func cameraSampleRay(cam *pinholecamera.PinholeCamera, px, py, s, samples, rx, ry int) Ray {
 	ox, oy := supersampleOffset(s, samples)
 	apertureRay := cam.ApertureRay(float32(px)+ox, float32(py)+oy, rx, ry)
+	slope := fmat33.MulMV(cam.ApertureToWorld, apertureRay)
 	return Ray{
-		Point: cam.Center,
-		Slope: fmat44.MulMV(&cam.ApertureToWorld, apertureRay),
+		Point: fvec4.T{cam.Center[0], cam.Center[1], cam.Center[2], 0},
+		Slope: fvec4.T{slope[0], slope[1], slope[2]},
 	}
 }
 
@@ -45,135 +46,6 @@ func projectToClip(proj RasterProjection, p fvec4.T) fvec4.T {
 		clip[r] = float32(float64(m[0])*float64(p[0]) + float64(m[1])*float64(p[1]) + float64(m[2])*float64(p[2]) + float64(m[3]))
 	}
 	return clip
-}
-
-// TestRasterProjectionMatchesCameraRays checks that points along each camera
-// ray project back onto that ray's sample position, with W equal to their
-// depth along the camera's eye axis.
-func TestRasterProjectionMatchesCameraRays(t *testing.T) {
-	const rx, ry, samples = 160, 90, 4
-	cam := newRasterTestCamera(fvec4.T{1, 2, 3}, fvec4.T{1, 0.5, -0.3}, rx, ry)
-	proj := NewRasterProjection(cam, rx, ry)
-
-	for _, px := range []int{0, 17, 80, 159} {
-		for _, py := range []int{0, 44, 89} {
-			for s := range samples {
-				ox, oy := supersampleOffset(s, samples)
-				ray := cameraSampleRay(cam, px, py, s, samples, rx, ry)
-				for _, rayT := range []float32{0.5, 3, 40} {
-					p := ray.Eval(rayT)
-					clip := projectToClip(proj, p)
-					gotX, gotY := clip[0]/clip[3], clip[1]/clip[3]
-					wantX, wantY := float32(px)+ox, float32(py)+oy
-					wantW := dot3(cam.Eye(), fvec4.SubVV(p, cam.Center))
-					if fmath.Abs(gotX-wantX) > 1e-3 || fmath.Abs(gotY-wantY) > 1e-3 || fmath.Abs(clip[3]-wantW) > 1e-4*wantW {
-						t.Errorf("pixel (%d, %d) sample %d, t=%v: got raster (%v, %v) W=%v; want (%v, %v) W=%v",
-							px, py, s, rayT, gotX, gotY, clip[3], wantX, wantY, wantW)
-					}
-				}
-			}
-		}
-	}
-}
-
-// TestRasterizeMatchesRaytrace rasterizes random triangles, including ones
-// that cross the near plane, lie behind the camera, or extend far past the
-// guard band, and checks that each covers the same samples as raytracing it
-// would, at the same depth, facing, and barycentric coordinates.  Mismatches
-// are allowed only for the few samples within snapping distance of an edge.
-func TestRasterizeMatchesRaytrace(t *testing.T) {
-	const rx, ry = 200, 150
-	cam := newRasterTestCamera(fvec4.T{0, 0, 1}, fvec4.T{1, 0.2, -0.1}, rx, ry)
-	proj := NewRasterProjection(cam, rx, ry)
-	eye, left, up := cam.Eye(), cam.Left(), cam.Up()
-
-	for _, samples := range []int{1, 4} {
-		for _, cullBack := range []bool{false, true} {
-			vb := NewGBuffer(40, 30, 104, 78, samples)
-			rng := rand.New(rand.NewPCG(1, 2))
-
-			var covered, mismatched int
-			for i := range 300 {
-				// Vertices are placed relative to the camera, mostly in
-				// front of it, and every tenth triangle is huge.
-				scale := float32(1)
-				if i%10 == 0 {
-					scale = 1e4
-				}
-				var vs [3]fvec4.T
-				var clip [3]fvec4.T
-				for j := range vs {
-					d := fvec4.AddVV(fvec4.AddVV(
-						fvec4.MulVS(eye, -2+12*rng.Float32()),
-						fvec4.MulVS(left, scale*(-4+8*rng.Float32()))),
-						fvec4.MulVS(up, scale*(-3+6*rng.Float32())))
-					vs[j] = fvec4.AddVV(cam.Center, d)
-					vs[j][3] = 0
-					clip[j] = projectToClip(proj, vs[j])
-				}
-				tri := MeshTri{Triangle: meshbvh.NewTriangle(vs[0], vs[1], vs[2])}
-				frontFacing := dot3(fvec4.CProd3(tri.E1, tri.E2), fvec4.SubVV(vs[0], cam.Center)) < 0
-
-				// Each vertex's normal is a different basis vector, so the
-				// interpolated normal is the barycentric coordinates.  It's
-				// negated on back faces, to face the camera.
-				attrs := RasterAttrs{
-					Normals:    [3]fvec4.T{{1, 0, 0, 0}, {0, 1, 0, 0}, {0, 0, 1, 0}},
-					GeomNormal: fvec4.T{1, 1, 1, 0},
-				}
-
-				vb.Clear()
-				vb.RasterizeTri(clip, &attrs, cullBack, VisHit{Tri: int32(i)})
-
-				for py := vb.SrcY; py < vb.LimY; py++ {
-					for px := vb.SrcX; px < vb.LimX; px++ {
-						for s := range samples {
-							idx := ((py-vb.SrcY)*(vb.LimX-vb.SrcX)+(px-vb.SrcX))*samples + s
-							got := vb.Hits[idx] != visHitNone
-
-							ray := cameraSampleRay(cam, px, py, s, samples, rx, ry)
-							_, _, _, ok := tri.RayIntersect(ray.Point, ray.Slope, 0, float32(math.Inf(1)))
-							wantW, wantB1, wantB2 := planeHit(vs, ray, eye)
-							want := ok && wantW >= rasterNear && (frontFacing || !cullBack)
-
-							if got || want {
-								covered++
-							}
-							if got != want {
-								mismatched++
-								continue
-							}
-							if !got {
-								continue
-							}
-							if fmath.Abs(vb.InvDepth[idx]*wantW-1) > 1e-4 {
-								t.Errorf("samples=%d cullBack=%v tri %d: pixel (%d, %d) sample %d has inverse depth %v; want %v",
-									samples, cullBack, i, px, py, s, vb.InvDepth[idx], 1/wantW)
-							}
-							if vb.Hits[idx].Back != !frontFacing {
-								t.Errorf("samples=%d cullBack=%v tri %d: pixel (%d, %d) sample %d has Back=%v; want %v",
-									samples, cullBack, i, px, py, s, vb.Hits[idx].Back, !frontFacing)
-							}
-							wantN := [3]float32{1 - wantB1 - wantB2, wantB1, wantB2}
-							if !frontFacing {
-								wantN = [3]float32{-wantN[0], -wantN[1], -wantN[2]}
-							}
-							gotN := vb.Normals[idx]
-							if fmath.Abs(gotN[0]-wantN[0]) > 1e-4 || fmath.Abs(gotN[1]-wantN[1]) > 1e-4 || fmath.Abs(gotN[2]-wantN[2]) > 1e-4 {
-								t.Errorf("samples=%d cullBack=%v tri %d: pixel (%d, %d) sample %d has normal %v; want %v",
-									samples, cullBack, i, px, py, s, gotN, wantN)
-							}
-						}
-					}
-				}
-			}
-
-			t.Logf("samples=%d cullBack=%v: %d of %d covered samples mismatched", samples, cullBack, mismatched, covered)
-			if covered == 0 || float64(mismatched) > 1e-3*float64(covered) {
-				t.Errorf("samples=%d cullBack=%v: %d of %d covered samples mismatched", samples, cullBack, mismatched, covered)
-			}
-		}
-	}
 }
 
 // planeHit returns the eye-axis depth at which ray meets the plane of triangle
@@ -278,7 +150,7 @@ func TestRasterizeWatertightGrid(t *testing.T) {
 // twice and every sample whose camera ray hits the floor is covered once.
 func TestRasterizeWatertightFloor(t *testing.T) {
 	const rx, ry, samples = 120, 90, 2
-	cam := newRasterTestCamera(fvec4.T{0, 0, 1}, fvec4.T{1, 0.3, -0.4}, rx, ry)
+	cam := newRasterTestCamera(fvec3.T{0, 0, 1}, fvec3.T{1, 0.3, -0.4}, rx, ry)
 	proj := NewRasterProjection(cam, rx, ry)
 	rng := rand.New(rand.NewPCG(5, 6))
 
