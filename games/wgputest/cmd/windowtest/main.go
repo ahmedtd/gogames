@@ -87,7 +87,7 @@ func run() error {
 
 		ex.animationTime += 0.005
 
-		if err := ex.render(ctx, dc.SurfaceView(), wgpuDevice, wgpuQueue); err != nil {
+		if err := ex.render(ctx, dc.Width(), dc.Height(), dc.SurfaceView(), wgpuDevice, wgpuQueue); err != nil {
 			slog.ErrorContext(ctx, "Error while rendering", slog.Any("err", err))
 		}
 	})
@@ -101,6 +101,9 @@ func run() error {
 
 // Uniforms corresponds to the Uniforms struct defined in the wgsl shader.
 type Uniforms struct {
+	WindowWidth  float32
+	WindowHeight float32
+
 	CamPos             fvec3.T
 	CamApertureToWorld fmat33.T
 	CamApertureLength  float32
@@ -110,6 +113,10 @@ type Uniforms struct {
 
 func (u Uniforms) bytes() []byte {
 	out := []byte{}
+	out = binary.LittleEndian.AppendUint32(out, math.Float32bits(u.WindowWidth))
+	out = binary.LittleEndian.AppendUint32(out, math.Float32bits(u.WindowHeight))
+	// CamPos has 16-byte alignment, so we need 8 padding bytes
+	out = append(out, 0, 0, 0, 0, 0, 0, 0, 0)
 	out = fvec3.AppendWGPUBytes(&u.CamPos, out)
 	out = fmat33.AppendWGPUBytes(&u.CamApertureToWorld, out)
 	out = binary.LittleEndian.AppendUint32(out, math.Float32bits(u.CamApertureLength))
@@ -477,7 +484,7 @@ func initExample(ctx context.Context, format gputypes.TextureFormat, device *wgp
 	return ex, nil
 }
 
-func (ex *Example) render(ctx context.Context, view *wgpu.TextureView, device *wgpu.Device, queue *wgpu.Queue) error {
+func (ex *Example) render(ctx context.Context, width int, height int, view *wgpu.TextureView, device *wgpu.Device, queue *wgpu.Queue) error {
 	// scene update
 	{
 		const dist = 3.5
@@ -511,6 +518,9 @@ func (ex *Example) render(ctx context.Context, view *wgpu.TextureView, device *w
 		}
 	}
 	ex.uniforms.CamPos[2] = 5 * fmath.Sin(ex.animationTime)
+
+	ex.uniforms.WindowWidth = float32(width)
+	ex.uniforms.WindowHeight = float32(height)
 
 	if err := ex.uploadUniforms(ctx, device); err != nil {
 		return fmt.Errorf("while uploading uniforms: %w", err)

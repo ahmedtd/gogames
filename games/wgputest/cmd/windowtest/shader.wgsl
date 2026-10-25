@@ -2,7 +2,7 @@ enable wgpu_ray_query;
 
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
-    @location(0) tex_coords: vec2<f32>,
+    @location(0) viewport_coords: vec2<f32>,
 };
 
 // The vertex shader does not actually read vertex data from any buffer.  It's
@@ -12,22 +12,22 @@ struct VertexOutput {
 // The vertex shader statically converts those three indices into a single triangle
 // that covers the entire viewport (bufferless fullscreen triangle).  Half of the
 // fragments will be discarded from overdraw.  The visible fragments will have
-// tex_coords range from (0,0) at the top left of the window, to (1,1) at the bottom
+// viewport_coords range from (0,0) at the top left of the window, to (1,1) at the bottom
 // right of the window.
 @vertex
 fn vs_main(@builtin(vertex_index) vertex_index: u32) -> VertexOutput {
     var result: VertexOutput;
 
     if vertex_index == 0 {
-        result.tex_coords = vec2<f32>(0, 0);
+        result.viewport_coords = vec2<f32>(0, 0);
         result.position = vec4<f32>(-1, 1, 0, 1);
     }
     if vertex_index == 1 {
-        result.tex_coords = vec2<f32>(0, 2);
+        result.viewport_coords = vec2<f32>(0, 2);
         result.position = vec4<f32>(-1, -3, 0, 1);
     }
     if vertex_index == 2 {
-        result.tex_coords = vec2<f32>(2, 0);
+        result.viewport_coords = vec2<f32>(2, 0);
         result.position = vec4<f32>(3, 1, 0, 1);
     }
     
@@ -78,6 +78,9 @@ struct RayIntersection {
 */
 
 struct Uniforms {
+    window_width: f32,
+    window_height: f32,
+
     // Camera position in world space.
     cam_pos: vec3<f32>,
     // Orthonormal transform from aperture space to world space.
@@ -138,12 +141,12 @@ var acc_struct: acceleration_structure;
 
 @fragment
 fn fs_main(vertex: VertexOutput) -> @location(0) vec4<f32> {
-	let d = vertex.tex_coords * 2.0 - 1.0;
+	let d = vertex.viewport_coords * 2.0 - 1.0;
 
     let cam_fov_horizontal = f32(radians(360));
     let cam_fov_vertical = f32(radians(180));
-    let theta = vertex.tex_coords.x * cam_fov_horizontal;
-    let phi = vertex.tex_coords.y * cam_fov_vertical;
+    let theta = vertex.viewport_coords.x * cam_fov_horizontal;
+    let phi = vertex.viewport_coords.y * cam_fov_vertical;
     let ray_global_direction = vec3<f32>(
         sin(phi)*cos(theta),
         sin(phi)*sin(theta),
