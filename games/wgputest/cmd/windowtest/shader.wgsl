@@ -67,9 +67,6 @@ struct RayIntersection {
 */
 
 struct Uniforms {
-    view_inv: mat4x4<f32>,
-    proj_inv: mat4x4<f32>,
-
     // Camera position in world space.
     cam_pos: vec3<f32>,
     // Orthonormal transform from aperture space to world space.

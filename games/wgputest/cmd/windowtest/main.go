@@ -4,6 +4,7 @@ import (
 	"context"
 	"embed"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io/fs"
 	"log"
@@ -12,7 +13,6 @@ import (
 	"os"
 	"unsafe"
 
-	"github.com/ahmedtd/gogames/games/wgputest/cmd/windowtest/rtexample"
 	"github.com/ahmedtd/gogames/lib/graphics/pinholecamera"
 	"github.com/ahmedtd/gogames/lib/vmath/faffinetransform3"
 	"github.com/ahmedtd/gogames/lib/vmath/fmat33"
@@ -54,6 +54,7 @@ func run() error {
 	var ex *Example
 
 	app.OnDraw(func(dc *gogpu.Context) {
+
 		provider := app.DeviceProvider()
 		if provider == nil {
 			slog.ErrorContext(ctx, "Error: app.DeviceProvider() is nil")
@@ -72,6 +73,7 @@ func run() error {
 		if ex == nil {
 			var err error
 			ex, err = initExample(
+				ctx,
 				uint32(dc.Width()),
 				uint32(dc.Height()),
 				app.DeviceProvider().SurfaceFormat(),
@@ -86,7 +88,7 @@ func run() error {
 
 		ex.animationTime += 0.005
 
-		if err := ex.render(dc.SurfaceView(), wgpuDevice, wgpuQueue); err != nil {
+		if err := ex.render(ctx, dc.SurfaceView(), wgpuDevice, wgpuQueue); err != nil {
 			slog.ErrorContext(ctx, "Error while rendering", slog.Any("err", err))
 		}
 	})
@@ -100,9 +102,6 @@ func run() error {
 
 // Uniforms corresponds to the Uniforms struct defined in the wgsl shader.
 type Uniforms struct {
-	ViewInverse rtexample.Mat4
-	ProjInverse rtexample.Mat4
-
 	CamPos             fvec3.T
 	CamApertureToWorld fmat33.T
 	CamApertureLength  float32
@@ -112,8 +111,6 @@ type Uniforms struct {
 
 func (u Uniforms) bytes() []byte {
 	out := []byte{}
-	out = u.ViewInverse.AppendBytes(out)
-	out = u.ProjInverse.AppendBytes(out)
 	out = fvec3.AppendWGPUBytes(&u.CamPos, out)
 	out = fmat33.AppendWGPUBytes(&u.CamApertureToWorld, out)
 	out = binary.LittleEndian.AppendUint32(out, math.Float32bits(u.CamApertureLength))
@@ -310,34 +307,65 @@ func loadScene(device *wgpu.Device, queue *wgpu.Queue) (*SceneComponents, error)
 
 // Example holds the state the Rust Example struct holds.
 type Example struct {
-	uniforms        Uniforms
-	uniformBuf      *wgpu.Buffer
+	uniforms   Uniforms
+	uniformBuf *wgpu.Buffer
+
 	tlas            *wgpu.Tlas
 	pipeline        *wgpu.RenderPipeline
 	bindGroup       *wgpu.BindGroup
 	sceneComponents *SceneComponents
 	animationTime   float32
-
-	// Kept only so they can be released; the Rust version relies on Drop.
-	release []interface{ Release() }
+	shaderModule    *wgpu.ShaderModule
+	bindGroupLayout *wgpu.BindGroupLayout
+	pipelineLayout  *wgpu.PipelineLayout
 }
 
-func initExample(width, height uint32, format gputypes.TextureFormat, device *wgpu.Device, queue *wgpu.Queue) (*Example, error) {
+func (ex *Example) Release() {
+	// Ordering is the reverse of the ordering in initExample
+	if ex.bindGroup != nil {
+		ex.bindGroup.Release()
+	}
+	if ex.pipeline != nil {
+		ex.pipeline.Release()
+	}
+	if ex.pipelineLayout != nil {
+		ex.pipelineLayout.Release()
+	}
+	if ex.bindGroupLayout != nil {
+		ex.bindGroupLayout.Release()
+	}
+	if ex.shaderModule != nil {
+		ex.shaderModule.Release()
+	}
+	if ex.tlas != nil {
+		ex.tlas.Release()
+	}
+	if ex.uniformBuf != nil {
+		ex.uniformBuf.Release()
+	}
+	if ex.sceneComponents != nil {
+		ex.sceneComponents.Release()
+	}
+}
+
+func initExample(ctx context.Context, width, height uint32, format gputypes.TextureFormat, device *wgpu.Device, queue *wgpu.Queue) (returnExample *Example, returnErr error) {
 	const sideCount = 8
 
 	ex := &Example{}
-	keep := func(r interface{ Release() }) { ex.release = append(ex.release, r) }
-	fail := func(what string, err error) (*Example, error) {
-		ex.Release()
-		return nil, fmt.Errorf("%s: %w", what, err)
-	}
+
+	// If we aren't returning the example, we need to release everything that
+	// has been partially-constructed.
+	defer func() {
+		if returnErr != nil {
+			ex.Release()
+		}
+	}()
 
 	sceneComponents, err := loadScene(device, queue)
 	if err != nil {
-		return fail("load scene", err)
+		return nil, fmt.Errorf("while loading scene: %w", err)
 	}
 	ex.sceneComponents = sceneComponents
-	keep(sceneComponents)
 
 	camera := &pinholecamera.PinholeCamera{
 		Center:          fvec3.T{0, 0, 0},
@@ -345,13 +373,7 @@ func initExample(width, height uint32, format gputypes.TextureFormat, device *wg
 		Aperture:        fvec3.T{0.02, 0.018, 0.012},
 	}
 
-	view := rtexample.LookAtRH(rtexample.Vec3{0.0, 0.0, 2.5}, rtexample.Vec3{}, rtexample.Vec3{0, 1, 0})
-	proj := rtexample.PerspectiveRH(rtexample.Radians(59.0), float32(width)/float32(height), 0.001, 1000.0)
-
 	ex.uniforms = Uniforms{
-		ViewInverse: view.Inverse(),
-		ProjInverse: proj.Inverse(),
-
 		CamPos:             camera.Center,
 		CamApertureToWorld: camera.ApertureToWorld,
 		CamApertureLength:  camera.Aperture[0],
@@ -359,12 +381,9 @@ func initExample(width, height uint32, format gputypes.TextureFormat, device *wg
 		CamApertureY:       camera.Aperture[2] * 2,
 	}
 
-	ex.uniformBuf, err = CreateBufferInit(device, "Uniform Buffer", ex.uniforms.bytes(),
-		wgpu.BufferUsageUniform|wgpu.BufferUsageCopyDst)
-	if err != nil {
-		return fail("create uniform buffer", err)
+	if err := ex.uploadUniforms(ctx, device); err != nil {
+		return nil, fmt.Errorf("while uploading uniforms: %w", err)
 	}
-	keep(ex.uniformBuf)
 
 	ex.tlas, err = device.CreateTlas(&wgpu.CreateTlasDescriptor{
 		Flags:        gputypes.ASFlagPreferFastTrace,
@@ -372,15 +391,13 @@ func initExample(width, height uint32, format gputypes.TextureFormat, device *wg
 		MaxInstances: sideCount * sideCount,
 	})
 	if err != nil {
-		return fail("create TLAS", err)
+		return nil, fmt.Errorf("while creating top-level acceleration structure: %w", err)
 	}
-	keep(ex.tlas)
 
-	shader, err := device.CreateShaderModule(&wgpu.ShaderModuleDescriptor{WGSL: shaderWGSL})
+	ex.shaderModule, err = device.CreateShaderModule(&wgpu.ShaderModuleDescriptor{WGSL: shaderWGSL})
 	if err != nil {
-		return fail("create shader", err)
+		return nil, fmt.Errorf("while creating shader module: %w", err)
 	}
-	keep(shader)
 
 	// Rust passes `layout: None` and then calls pipeline.get_bind_group_layout(0).
 	// Native Go has no implicit pipeline layouts, so the layout the Rust
@@ -393,7 +410,7 @@ func initExample(width, height uint32, format gputypes.TextureFormat, device *wg
 			Buffer:     &gputypes.BufferBindingLayout{Type: gputypes.BufferBindingTypeReadOnlyStorage},
 		}
 	}
-	bindGroupLayout, err := device.CreateBindGroupLayout(&wgpu.BindGroupLayoutDescriptor{
+	ex.bindGroupLayout, err = device.CreateBindGroupLayout(&wgpu.BindGroupLayoutDescriptor{
 		Entries: []gputypes.BindGroupLayoutEntry{
 			{
 				Binding:    0,
@@ -412,26 +429,24 @@ func initExample(width, height uint32, format gputypes.TextureFormat, device *wg
 		},
 	})
 	if err != nil {
-		return fail("create bind group layout", err)
+		return nil, fmt.Errorf("while creating bind group layout: %w", err)
 	}
-	keep(bindGroupLayout)
 
-	pipelineLayout, err := device.CreatePipelineLayout(&wgpu.PipelineLayoutDescriptor{
-		BindGroupLayouts: []*wgpu.BindGroupLayout{bindGroupLayout},
+	ex.pipelineLayout, err = device.CreatePipelineLayout(&wgpu.PipelineLayoutDescriptor{
+		BindGroupLayouts: []*wgpu.BindGroupLayout{ex.bindGroupLayout},
 	})
 	if err != nil {
-		return fail("create pipeline layout", err)
+		return nil, fmt.Errorf("while creating pipeline layout: %w", err)
 	}
-	keep(pipelineLayout)
 
 	ex.pipeline, err = device.CreateRenderPipeline(&wgpu.RenderPipelineDescriptor{
-		Layout: pipelineLayout,
+		Layout: ex.pipelineLayout,
 		Vertex: wgpu.VertexState{
-			Module:     shader,
+			Module:     ex.shaderModule,
 			EntryPoint: "vs_main",
 		},
 		Fragment: &wgpu.FragmentState{
-			Module:     shader,
+			Module:     ex.shaderModule,
 			EntryPoint: "fs_main",
 			Targets: []gputypes.ColorTargetState{{
 				Format:    format,
@@ -442,12 +457,11 @@ func initExample(width, height uint32, format gputypes.TextureFormat, device *wg
 		Multisample: gputypes.DefaultMultisampleState(),
 	})
 	if err != nil {
-		return fail("create render pipeline", err)
+		return nil, fmt.Errorf("while creating render pipeline: %w", err)
 	}
-	keep(ex.pipeline)
 
 	ex.bindGroup, err = device.CreateBindGroup(&wgpu.BindGroupDescriptor{
-		Layout: bindGroupLayout,
+		Layout: ex.bindGroupLayout,
 		Entries: []wgpu.BindGroupEntry{
 			{Binding: 0, Buffer: ex.uniformBuf},
 			{Binding: 5, AccelerationStructure: ex.tlas},
@@ -458,14 +472,13 @@ func initExample(width, height uint32, format gputypes.TextureFormat, device *wg
 		},
 	})
 	if err != nil {
-		return fail("create bind group", err)
+		return nil, fmt.Errorf("while creating bind group: %w", err)
 	}
-	keep(ex.bindGroup)
 
 	return ex, nil
 }
 
-func (ex *Example) render(view *wgpu.TextureView, device *wgpu.Device, queue *wgpu.Queue) error {
+func (ex *Example) render(ctx context.Context, view *wgpu.TextureView, device *wgpu.Device, queue *wgpu.Queue) error {
 	// scene update
 	{
 		const dist = 3.5
@@ -478,7 +491,8 @@ func (ex *Example) render(view *wgpu.TextureView, device *wgpu.Device, queue *wg
 
 		for x := range sideCount {
 			for y := range sideCount {
-				blasIndex := (x + y) % len(blases)
+				// blasIndex := (x + y) % len(blases)
+				blasIndex := 0
 
 				fx := float32(x)/float32(sideCount-1)*2.0 - 1.0
 				fy := float32(y)/float32(sideCount-1)*2.0 - 1.0
@@ -498,6 +512,10 @@ func (ex *Example) render(view *wgpu.TextureView, device *wgpu.Device, queue *wg
 		}
 	}
 
+	if err := ex.uploadUniforms(ctx, device); err != nil {
+		return fmt.Errorf("while uploading uniforms: %w", err)
+	}
+
 	encoder, err := device.CreateCommandEncoder(&wgpu.CommandEncoderDescriptor{})
 	if err != nil {
 		return fmt.Errorf("create encoder: %w", err)
@@ -510,7 +528,7 @@ func (ex *Example) render(view *wgpu.TextureView, device *wgpu.Device, queue *wg
 			View:       view,
 			LoadOp:     gputypes.LoadOpClear,
 			StoreOp:    gputypes.StoreOpStore,
-			ClearValue: gputypes.Color{R: 0, G: 1, B: 0, A: 1}, // wgpu::Color::GREEN
+			ClearValue: gputypes.Color{R: 0, G: 1, B: 0, A: 1},
 		}},
 	})
 	if err != nil {
@@ -533,12 +551,41 @@ func (ex *Example) render(view *wgpu.TextureView, device *wgpu.Device, queue *wg
 	return nil
 }
 
-// Release frees everything init created, in reverse creation order.
-func (ex *Example) Release() {
-	for i := len(ex.release) - 1; i >= 0; i-- {
-		ex.release[i].Release()
+func (ex *Example) uploadUniforms(ctx context.Context, device *wgpu.Device) (overallErr error) {
+	var err error
+
+	uniformBytes := ex.uniforms.bytes()
+	if ex.uniformBuf != nil && int(ex.uniformBuf.Size()) != len(uniformBytes) {
+		ex.uniformBuf.Release()
+		ex.uniformBuf = nil
 	}
-	ex.release = nil
+	if ex.uniformBuf == nil {
+		ex.uniformBuf, err = device.CreateBuffer(&wgpu.BufferDescriptor{
+			Label:            "Uniforms",
+			Size:             uint64(len(uniformBytes)),
+			Usage:            wgpu.BufferUsageUniform | wgpu.BufferUsageCopyDst | wgpu.BufferUsageMapWrite,
+			MappedAtCreation: false,
+		})
+		if err != nil {
+			return fmt.Errorf("while allocating new uniform buffer: %w", err)
+		}
+	}
+	if err := ex.uniformBuf.Map(ctx, wgpu.MapModeWrite, 0, uint64(len(uniformBytes))); err != nil {
+		return fmt.Errorf("while mapping uniform buffer: %w", err)
+	}
+	defer func() {
+		if err := ex.uniformBuf.Unmap(); err != nil && !errors.Is(err, wgpu.ErrMapNotMapped) {
+			overallErr = fmt.Errorf("while unmapping uniform buffer: %w", err)
+		}
+	}()
+
+	uniformRange, err := ex.uniformBuf.MappedRange(0, ex.uniformBuf.Size())
+	if err != nil {
+		return fmt.Errorf("while getting uniform buffer mapped range: %w", err)
+	}
+	copy(uniformRange.BytesMut(), uniformBytes)
+
+	return nil
 }
 
 func alignUp(n, a uint32) uint32 { return (n + a - 1) / a * a }
