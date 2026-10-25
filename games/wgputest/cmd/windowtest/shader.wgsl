@@ -141,29 +141,25 @@ var acc_struct: acceleration_structure;
 
 @fragment
 fn fs_main(vertex: VertexOutput) -> @location(0) vec4<f32> {
-	let d = vertex.viewport_coords * 2.0 - 1.0;
+    // Compute aperture coords, which have 0,0 in the center of the window, range
+    // from -1 to +1 in the x axis, and some arbitary amount based on the viewport
+    // aspect ratio in the y axis.
+    let aperture_coords = vec2<f32>(
+        vertex.viewport_coords.x * 2.0 - 1.0,
+        (vertex.viewport_coords.y * 2.0 - 1.0) * uniforms.window_height / uniforms.window_width,
+    );
 
-    let cam_fov_horizontal = f32(radians(360));
-    let cam_fov_vertical = f32(radians(180));
-    let theta = vertex.viewport_coords.x * cam_fov_horizontal;
-    let phi = vertex.viewport_coords.y * cam_fov_vertical;
+    let cam_fov_horizontal = f32(radians(120));
+
+    let theta = aperture_coords.x * cam_fov_horizontal/2;
+    let phi = radians(90) + aperture_coords.y * cam_fov_horizontal/2;
+
+    let ray_global_origin = uniforms.cam_pos;
     let ray_global_direction = vec3<f32>(
         sin(phi)*cos(theta),
         sin(phi)*sin(theta),
         cos(phi),
     );
-
-    let ray_horizontal_angle = d.x * cam_fov_horizontal / 2;
-    let ray_vertical_angle = d.x * cam_fov_vertical / 2;
-
-
-    let ray_global_origin = uniforms.cam_pos;
-    //let ray_aperture_direction = normalize(vec3<f32>(
-    //    sqrt(1 - sin(ray_horizontal_angle)),
-    //    sin(d.x * cam_fov_horizontal / 2),
-    //    sin(d.y * cam),
-    //));
-    //let ray_global_direction = uniforms.cam_aperture_to_world * ray_aperture_direction;
 
     var rq: ray_query;
     rayQueryInitialize(&rq, acc_struct, RayDesc(0u, 0xFFu, 0.1, 200.0, ray_global_origin, ray_global_direction));
@@ -171,18 +167,15 @@ fn fs_main(vertex: VertexOutput) -> @location(0) vec4<f32> {
 
     let intersection = rayQueryGetCommittedIntersection(&rq);
     if (intersection.kind != RAY_QUERY_INTERSECTION_TRIANGLE) {
-        // No hit -- render some sky.
-        // if (ray_global_direction.z < 0.0) {
-        //     return vec4<f32>(0, 0, 0, 1);
-        // }
+        // No hit -- draw spots in the +x, +y, and +z direction to help with orientation.
         var color = vec4<f32>(0,0,0,1);
-        if (ray_global_direction.x > -0.1 && ray_global_direction.x < 0.1) {
+        if (dot(ray_global_direction, vec3<f32>(1, 0, 0)) > 0.99) {
             color.x = 1.0;
         }
-        if (ray_global_direction.y > -0.1 && ray_global_direction.y < 0.1) {
+        if (dot(ray_global_direction, vec3<f32>(0, 1, 0)) > 0.99) {
             color.y = 1.0;
         }
-        if (ray_global_direction.z > -0.1 && ray_global_direction.z < 0.1) {
+        if (dot(ray_global_direction, vec3<f32>(0, 0, 1)) > 0.99) {
             color.z = 1.0;
         }
         return color;
