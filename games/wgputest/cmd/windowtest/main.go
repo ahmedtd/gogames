@@ -120,8 +120,6 @@ func (u Uniforms) bytes() []byte {
 	out := []byte{}
 	out = binary.LittleEndian.AppendUint32(out, math.Float32bits(u.WindowWidth))
 	out = binary.LittleEndian.AppendUint32(out, math.Float32bits(u.WindowHeight))
-	// CamPos has 16-byte alignment, so we need 8 padding bytes
-	out = append(out, 0, 0, 0, 0, 0, 0, 0, 0)
 	out = fvec3.AppendWGPUBytes(&u.CamPos, out)
 	out = fmat33.AppendWGPUBytes(&u.CamApertureToWorld, out)
 	out = binary.LittleEndian.AppendUint32(out, math.Float32bits(u.CamApertureLength))
@@ -391,16 +389,16 @@ func initExample(ctx context.Context, format gputypes.TextureFormat, device *wgp
 	// Looking along the world's x-axis, right is -y, down is -z, eye is +x
 	//
 	// Column 0 is right, Column 1 is down, column 2 is eye.
-	// apertureToWorld := fmat33.T{
-	// 	0, 0, 1,
-	// 	-1, 0, 0,
-	// 	0, -1, 0,
-	// }
 	apertureToWorld := fmat33.T{
+		0, 0, 1,
+		-1, 0, 0,
 		0, -1, 0,
-		0, 0, -1,
-		1, 0, 0,
 	}
+	// apertureToWorld := fmat33.T{
+	// 	0, -1, 0,
+	// 	0, 0, -1,
+	// 	1, 0, 0,
+	// }
 
 	ex.uniforms = Uniforms{
 		CamPos:             camera.Center,

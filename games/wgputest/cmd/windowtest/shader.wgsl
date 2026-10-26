@@ -177,7 +177,7 @@ fn fs_main(vertex: VertexOutput) -> @location(0) vec4<f32> {
     );
 
     let ray_global_origin = uniforms.cam_pos;
-    let ray_global_direction = cam_aperture_to_world * ray_aperture_direction;
+    let ray_global_direction = uniforms.cam_aperture_to_world * ray_aperture_direction;
 
     var rq: ray_query;
     rayQueryInitialize(&rq, acc_struct, RayDesc(0u, 0xFFu, 0.1, 200.0, ray_global_origin, ray_global_direction));
