@@ -13,7 +13,6 @@ import (
 	"os"
 	"unsafe"
 
-	"github.com/ahmedtd/gogames/lib/graphics/pinholecamera"
 	"github.com/ahmedtd/gogames/lib/vmath/faffinetransform3"
 	"github.com/ahmedtd/gogames/lib/vmath/fmat33"
 	"github.com/ahmedtd/gogames/lib/vmath/fvec3"
@@ -102,26 +101,16 @@ func run() error {
 
 // Uniforms corresponds to the Uniforms struct defined in the wgsl shader.
 type Uniforms struct {
+	Camera       *UniformCamera
 	WindowWidth  float32
 	WindowHeight float32
-
-	CamPos           fvec3.T
-	CamHorizontalFOV float32
-
-	// Orthornormal transform from aperture space to world space.
-	//
-	// Column 0 is the right vector.  Column 1 is the down vector.  Column 2 is
-	// the eye vector.
-	CamApertureToWorld fmat33.T
 }
 
-func (u Uniforms) bytes() []byte {
+func (u *Uniforms) bytes() []byte {
 	out := []byte{}
+	out = u.Camera.AppendWGPU(out)
 	out = wgpuuniform.AppendFloat32(u.WindowWidth, out)
 	out = wgpuuniform.AppendFloat32(u.WindowHeight, out)
-	out = wgpuuniform.AppendFVec3(&u.CamPos, out)
-	out = wgpuuniform.AppendFloat32(u.CamHorizontalFOV, out)
-	out = wgpuuniform.AppendFMat33(&u.CamApertureToWorld, out)
 
 	// The overall alignment of the Uniforms struct is 16, so we need to round
 	// the size up to a multiple of 16.
@@ -371,34 +360,16 @@ func initExample(ctx context.Context, format gputypes.TextureFormat, device *wgp
 	}
 	ex.sceneComponents = sceneComponents
 
-	camera := &pinholecamera.PinholeCamera{
-		Center:          fvec3.T{0, 0, 0},
-		ApertureToWorld: fmat33.Identity(),
-		Aperture:        fvec3.T{0.02, 0.018, 0.012},
-	}
-
-	// right := fvec3.MulVS(camera.Left(), -1)
-	// down := fvec3.MulVS(camera.Up(), -1)
-	// eye := camera.Eye()
-
-	// Looking along the world's x-axis, right is -y, down is -z, eye is +x
-	//
-	// Column 0 is right, Column 1 is down, column 2 is eye.
-	apertureToWorld := fmat33.T{
-		0, 0, 1,
-		-1, 0, 0,
-		0, -1, 0,
-	}
-	// apertureToWorld := fmat33.T{
-	// 	0, -1, 0,
-	// 	0, 0, -1,
-	// 	1, 0, 0,
-	// }
-
 	ex.uniforms = Uniforms{
-		CamPos:             camera.Center,
-		CamApertureToWorld: apertureToWorld,
-		CamHorizontalFOV:   90,
+		Camera: &UniformCamera{
+			WorldCenter:   fvec3.T{0, 0, 0},
+			HorizontalFOV: 90,
+			ApertureToWorld: fmat33.T{
+				0, 0, 1,
+				-1, 0, 0,
+				0, -1, 0,
+			},
+		},
 	}
 
 	if err := ex.uploadUniforms(ctx, device); err != nil {
@@ -532,7 +503,7 @@ func (ex *Example) render(ctx context.Context, width int, height int, view *wgpu
 		}
 	}
 	//ex.uniforms.CamPos[2] = 5 * fmath.Sin(ex.animationTime)
-	ex.uniforms.CamHorizontalFOV = 90 + 30*fmath.Sin(ex.animationTime)
+	ex.uniforms.Camera.HorizontalFOV = 90 + 30*fmath.Sin(ex.animationTime)
 
 	ex.uniforms.WindowWidth = float32(width)
 	ex.uniforms.WindowHeight = float32(height)
@@ -651,5 +622,35 @@ func U32Bytes(v []uint32) []byte {
 	for _, u := range v {
 		b = binary.LittleEndian.AppendUint32(b, u)
 	}
+	return b
+}
+
+// UniformCamera is the Go-side intermediate representation of Camera in the
+// wgsl shader.
+type UniformCamera struct {
+	WorldCenter fvec3.T
+
+	// Orthonormal transform from aperture space to world space.
+	//
+	// Aperture space is the screen space coordinate system.  The origin is at
+	// the center of the screen.  +x is to the right.  +y is down.  +z is into
+	// the screen.
+	//
+	// The matrix expresses a change of basis from aperture space to world
+	// space.  Column 1 is the aperture right vector, expressed in world
+	// coordinates.  Column 2 is the aperture down vector, expressed world
+	// coordinates.  Column 3 is the aperture eye vector, expressed in world
+	// coordinates.
+	ApertureToWorld fmat33.T
+
+	// The horizontal field-of-view, in degrees.  The vertical field of view is
+	// automatically computed from the viewport dimensions.
+	HorizontalFOV float32
+}
+
+func (c *UniformCamera) AppendWGPU(b []byte) []byte {
+	b = wgpuuniform.AppendFVec3(&c.WorldCenter, b)
+	b = wgpuuniform.AppendFloat32(c.HorizontalFOV, b)
+	b = wgpuuniform.AppendFMat33(&c.ApertureToWorld, b)
 	return b
 }

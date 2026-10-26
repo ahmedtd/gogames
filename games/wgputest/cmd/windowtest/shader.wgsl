@@ -78,17 +78,19 @@ struct RayIntersection {
 */
 
 struct Uniforms {
+    camera: Camera,
     window_width: f32,
     window_height: f32,
+};
 
-    // Camera position in world space.
-    cam_pos: vec3<f32>,
-    cam_fov_horizontal: f32,
+struct Camera {
+    world_pos: vec3<f32>,
+    horizontal_fov: f32,
     // Orthonormal transform from aperture space to world space.
     // * Column 0 is the right vector.
     // * Column 1 the down vector.
     // * Column 2 the eye vector.
-    cam_aperture_to_world: mat3x3<f32>,
+    aperture_to_world: mat3x3<f32>,
 };
 
 struct Vertex {
@@ -146,18 +148,16 @@ fn fs_main(vertex: VertexOutput) -> @location(0) vec4<f32> {
         (vertex.viewport_coords.y * 2.0 - 1.0) * uniforms.window_height / uniforms.window_width,
     );
 
-    let cam_fov_horizontal = f32(radians(uniforms.cam_fov_horizontal));
-
-    // Azimuth is is the angle right (positive angles) or left (negative angles) of
-    // the eye vector.
-    let aperture_azimuth = aperture_coords.x * cam_fov_horizontal/2;
-
-    // Elevation is the angle below (positive angles) or above (negative angles)
-    // the eye vector.
-    let aperture_elevation = aperture_coords.y * cam_fov_horizontal/2;
-
     // Aperture space is composed of the right, down, and eye vectors.  The eye
     // vector points into the screen.  The origin is at the center of the screen.
+
+    let cam_fov_horizontal = f32(radians(uniforms.camera.horizontal_fov));
+
+    // Azimuth is is the angle right (positive angles) or left (negative angles) of
+    // the eye vector. Elevation is the angle below (positive angles) or above (negative angles)
+    // the eye vector.
+    let aperture_azimuth = aperture_coords.x * cam_fov_horizontal/2;
+    let aperture_elevation = aperture_coords.y * cam_fov_horizontal/2;
 
     let ray_aperture_direction = vec3<f32>(
         cos(aperture_elevation)*sin(aperture_azimuth),
@@ -165,8 +165,8 @@ fn fs_main(vertex: VertexOutput) -> @location(0) vec4<f32> {
         cos(aperture_elevation)*cos(aperture_azimuth),
     );
 
-    let ray_global_origin = uniforms.cam_pos;
-    let ray_global_direction = uniforms.cam_aperture_to_world * ray_aperture_direction;
+    let ray_global_origin = uniforms.camera.world_pos;
+    let ray_global_direction = uniforms.camera.aperture_to_world * ray_aperture_direction;
 
     var rq: ray_query;
     rayQueryInitialize(&rq, acc_struct, RayDesc(0u, 0xFFu, 0.1, 200.0, ray_global_origin, ray_global_direction));
