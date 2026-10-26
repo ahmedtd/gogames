@@ -18,6 +18,7 @@ import (
 	"github.com/ahmedtd/gogames/lib/vmath/fmat33"
 	"github.com/ahmedtd/gogames/lib/vmath/fvec3"
 	"github.com/ahmedtd/gogames/lib/wgpuuniform"
+	"github.com/barnex/fmath"
 	"github.com/gogpu/gogpu"
 	"github.com/gogpu/gogpu/gpu/types"
 	"github.com/gogpu/gputypes"
@@ -104,7 +105,8 @@ type Uniforms struct {
 	WindowWidth  float32
 	WindowHeight float32
 
-	CamPos fvec3.T
+	CamPos           fvec3.T
+	CamHorizontalFOV float32
 
 	// Orthornormal transform from aperture space to world space.
 	//
@@ -118,6 +120,7 @@ func (u Uniforms) bytes() []byte {
 	out = wgpuuniform.AppendFloat32(u.WindowWidth, out)
 	out = wgpuuniform.AppendFloat32(u.WindowHeight, out)
 	out = wgpuuniform.AppendFVec3(&u.CamPos, out)
+	out = wgpuuniform.AppendFloat32(u.CamHorizontalFOV, out)
 	out = wgpuuniform.AppendFMat33(&u.CamApertureToWorld, out)
 
 	// The overall alignment of the Uniforms struct is 16, so we need to round
@@ -395,6 +398,7 @@ func initExample(ctx context.Context, format gputypes.TextureFormat, device *wgp
 	ex.uniforms = Uniforms{
 		CamPos:             camera.Center,
 		CamApertureToWorld: apertureToWorld,
+		CamHorizontalFOV:   90,
 	}
 
 	if err := ex.uploadUniforms(ctx, device); err != nil {
@@ -528,6 +532,7 @@ func (ex *Example) render(ctx context.Context, width int, height int, view *wgpu
 		}
 	}
 	//ex.uniforms.CamPos[2] = 5 * fmath.Sin(ex.animationTime)
+	ex.uniforms.CamHorizontalFOV = 90 + 30*fmath.Sin(ex.animationTime)
 
 	ex.uniforms.WindowWidth = float32(width)
 	ex.uniforms.WindowHeight = float32(height)

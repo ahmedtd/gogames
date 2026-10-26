@@ -83,6 +83,7 @@ struct Uniforms {
 
     // Camera position in world space.
     cam_pos: vec3<f32>,
+    cam_fov_horizontal: f32,
     // Orthonormal transform from aperture space to world space.
     // * Column 0 is the right vector.
     // * Column 1 the down vector.
@@ -145,7 +146,7 @@ fn fs_main(vertex: VertexOutput) -> @location(0) vec4<f32> {
         (vertex.viewport_coords.y * 2.0 - 1.0) * uniforms.window_height / uniforms.window_width,
     );
 
-    let cam_fov_horizontal = f32(radians(90));
+    let cam_fov_horizontal = f32(radians(uniforms.cam_fov_horizontal));
 
     // Azimuth is is the angle right (positive angles) or left (negative angles) of
     // the eye vector.
