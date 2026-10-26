@@ -17,7 +17,6 @@ import (
 	"github.com/ahmedtd/gogames/lib/vmath/faffinetransform3"
 	"github.com/ahmedtd/gogames/lib/vmath/fmat33"
 	"github.com/ahmedtd/gogames/lib/vmath/fvec3"
-	"github.com/barnex/fmath"
 	"github.com/gogpu/gogpu"
 	"github.com/gogpu/gogpu/gpu/types"
 	"github.com/gogpu/gputypes"
@@ -104,11 +103,17 @@ type Uniforms struct {
 	WindowWidth  float32
 	WindowHeight float32
 
-	CamPos             fvec3.T
+	CamPos fvec3.T
+
+	// Orthornormal transform from aperture space to world space.
+	//
+	// Column 0 is the right vector.  Column 1 is the down vector.  Column 2 is
+	// the eye vector.
 	CamApertureToWorld fmat33.T
-	CamApertureLength  float32
-	CamApertureX       float32
-	CamApertureY       float32
+
+	CamApertureLength float32
+	CamApertureX      float32
+	CamApertureY      float32
 }
 
 func (u Uniforms) bytes() []byte {
@@ -379,9 +384,27 @@ func initExample(ctx context.Context, format gputypes.TextureFormat, device *wgp
 		Aperture:        fvec3.T{0.02, 0.018, 0.012},
 	}
 
+	// right := fvec3.MulVS(camera.Left(), -1)
+	// down := fvec3.MulVS(camera.Up(), -1)
+	// eye := camera.Eye()
+
+	// Looking along the world's x-axis, right is -y, down is -z, eye is +x
+	//
+	// Column 0 is right, Column 1 is down, column 2 is eye.
+	// apertureToWorld := fmat33.T{
+	// 	0, 0, 1,
+	// 	-1, 0, 0,
+	// 	0, -1, 0,
+	// }
+	apertureToWorld := fmat33.T{
+		0, -1, 0,
+		0, 0, -1,
+		1, 0, 0,
+	}
+
 	ex.uniforms = Uniforms{
 		CamPos:             camera.Center,
-		CamApertureToWorld: camera.ApertureToWorld,
+		CamApertureToWorld: apertureToWorld,
 		CamApertureLength:  camera.Aperture[0],
 		CamApertureX:       camera.Aperture[1] * 2,
 		CamApertureY:       camera.Aperture[2] * 2,
@@ -517,7 +540,7 @@ func (ex *Example) render(ctx context.Context, width int, height int, view *wgpu
 			}
 		}
 	}
-	ex.uniforms.CamPos[2] = 5 * fmath.Sin(ex.animationTime)
+	//ex.uniforms.CamPos[2] = 5 * fmath.Sin(ex.animationTime)
 
 	ex.uniforms.WindowWidth = float32(width)
 	ex.uniforms.WindowHeight = float32(height)
