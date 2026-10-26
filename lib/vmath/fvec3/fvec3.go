@@ -1,8 +1,6 @@
 package fvec3
 
 import (
-	"encoding/binary"
-	"math"
 	"math/rand/v2"
 
 	"github.com/barnex/fmath"
@@ -175,23 +173,4 @@ func GaussianUnitVec3Distribution(normal T, mid float32, rng *rand.Rand) T {
 
 	// Dead code.
 	return T{0, 0, 0}
-}
-
-func AppendWGPUBytes(m *T, b []byte) []byte {
-	// vec3<f32> AlignOf=16 SizeOf=12 (WGPU Spec)
-
-	// We need to make sure the point we're about to write to is 16-byte aligned
-	// (counting from the beginning of b).
-	alignTo := alignUp(len(b), 16)
-	alignmentPadding := alignTo - len(b)
-	b = append(b, make([]byte, alignmentPadding)...)
-
-	b = binary.LittleEndian.AppendUint32(b, math.Float32bits(m[0]))
-	b = binary.LittleEndian.AppendUint32(b, math.Float32bits(m[1]))
-	b = binary.LittleEndian.AppendUint32(b, math.Float32bits(m[2]))
-	return b
-}
-
-func alignUp(n, a int) int {
-	return (n + a - 1) / a * a
 }

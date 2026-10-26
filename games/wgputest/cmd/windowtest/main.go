@@ -17,6 +17,7 @@ import (
 	"github.com/ahmedtd/gogames/lib/vmath/faffinetransform3"
 	"github.com/ahmedtd/gogames/lib/vmath/fmat33"
 	"github.com/ahmedtd/gogames/lib/vmath/fvec3"
+	"github.com/ahmedtd/gogames/lib/wgpuuniform"
 	"github.com/gogpu/gogpu"
 	"github.com/gogpu/gogpu/gpu/types"
 	"github.com/gogpu/gputypes"
@@ -110,27 +111,18 @@ type Uniforms struct {
 	// Column 0 is the right vector.  Column 1 is the down vector.  Column 2 is
 	// the eye vector.
 	CamApertureToWorld fmat33.T
-
-	CamApertureLength float32
-	CamApertureX      float32
-	CamApertureY      float32
 }
 
 func (u Uniforms) bytes() []byte {
 	out := []byte{}
-	out = binary.LittleEndian.AppendUint32(out, math.Float32bits(u.WindowWidth))
-	out = binary.LittleEndian.AppendUint32(out, math.Float32bits(u.WindowHeight))
-	out = fvec3.AppendWGPUBytes(&u.CamPos, out)
-	out = fmat33.AppendWGPUBytes(&u.CamApertureToWorld, out)
-	out = binary.LittleEndian.AppendUint32(out, math.Float32bits(u.CamApertureLength))
-	out = binary.LittleEndian.AppendUint32(out, math.Float32bits(u.CamApertureX))
-	out = binary.LittleEndian.AppendUint32(out, math.Float32bits(u.CamApertureY))
+	out = wgpuuniform.AppendFloat32(u.WindowWidth, out)
+	out = wgpuuniform.AppendFloat32(u.WindowHeight, out)
+	out = wgpuuniform.AppendFVec3(&u.CamPos, out)
+	out = wgpuuniform.AppendFMat33(&u.CamApertureToWorld, out)
+
 	// The overall alignment of the Uniforms struct is 16, so we need to round
 	// the size up to a multiple of 16.
-	targetSize := alignUp(uint32(len(out)), 16)
-	paddingSize := int(targetSize) - len(out)
-	padding := make([]byte, paddingSize)
-	out = append(out, padding...)
+	out = wgpuuniform.PadTo(16, out)
 
 	return out
 }
@@ -403,9 +395,6 @@ func initExample(ctx context.Context, format gputypes.TextureFormat, device *wgp
 	ex.uniforms = Uniforms{
 		CamPos:             camera.Center,
 		CamApertureToWorld: apertureToWorld,
-		CamApertureLength:  camera.Aperture[0],
-		CamApertureX:       camera.Aperture[1] * 2,
-		CamApertureY:       camera.Aperture[2] * 2,
 	}
 
 	if err := ex.uploadUniforms(ctx, device); err != nil {

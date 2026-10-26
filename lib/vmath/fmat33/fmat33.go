@@ -1,9 +1,6 @@
 package fmat33
 
 import (
-	"encoding/binary"
-	"math"
-
 	"github.com/ahmedtd/gogames/lib/vmath/fvec2"
 
 	"github.com/barnex/fmath"
@@ -187,32 +184,4 @@ func Orthonormalize(m T) T {
 		u1y, u2y, u3y,
 		u1z, u2z, u3z,
 	}
-}
-
-func AppendWGPUBytes(m *T, b []byte) []byte {
-	// mat3x3<f32> AlignOf=16 SizeOf=48 (WGPU Spec)
-
-	// We need to make sure the point we're about to write to is 16-byte aligned
-	// (counting from the beginning of b).
-	alignTo := alignUp(len(b), 16)
-	alignmentPadding := alignTo - len(b)
-	b = append(b, make([]byte, alignmentPadding)...)
-
-	b = binary.LittleEndian.AppendUint32(b, math.Float32bits(m[0]))
-	b = binary.LittleEndian.AppendUint32(b, math.Float32bits(m[3]))
-	b = binary.LittleEndian.AppendUint32(b, math.Float32bits(m[6]))
-	b = append(b, 0, 0, 0, 0)
-	b = binary.LittleEndian.AppendUint32(b, math.Float32bits(m[1]))
-	b = binary.LittleEndian.AppendUint32(b, math.Float32bits(m[4]))
-	b = binary.LittleEndian.AppendUint32(b, math.Float32bits(m[7]))
-	b = append(b, 0, 0, 0, 0)
-	b = binary.LittleEndian.AppendUint32(b, math.Float32bits(m[2]))
-	b = binary.LittleEndian.AppendUint32(b, math.Float32bits(m[5]))
-	b = binary.LittleEndian.AppendUint32(b, math.Float32bits(m[8]))
-	b = append(b, 0, 0, 0, 0)
-	return b
-}
-
-func alignUp(n, a int) int {
-	return (n + a - 1) / a * a
 }

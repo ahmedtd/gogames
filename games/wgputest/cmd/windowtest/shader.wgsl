@@ -88,10 +88,6 @@ struct Uniforms {
     // * Column 1 the down vector.
     // * Column 2 the eye vector.
     cam_aperture_to_world: mat3x3<f32>,
-
-    cam_aperture_length: f32,
-    cam_aperture_width: f32,
-    cam_aperture_height: f32,
 };
 
 struct Vertex {
@@ -149,8 +145,7 @@ fn fs_main(vertex: VertexOutput) -> @location(0) vec4<f32> {
         (vertex.viewport_coords.y * 2.0 - 1.0) * uniforms.window_height / uniforms.window_width,
     );
 
-    let cam_fov_horizontal = f32(radians(360));
-    let cam_fov_vertical = f32(radians(180));
+    let cam_fov_horizontal = f32(radians(90));
 
     // Azimuth is is the angle right (positive angles) or left (negative angles) of
     // the eye vector.
@@ -158,7 +153,7 @@ fn fs_main(vertex: VertexOutput) -> @location(0) vec4<f32> {
 
     // Elevation is the angle below (positive angles) or above (negative angles)
     // the eye vector.
-    let aperture_elevation = aperture_coords.y * cam_fov_vertical/2;
+    let aperture_elevation = aperture_coords.y * cam_fov_horizontal/2;
 
     // Aperture space is composed of the right, down, and eye vectors.  The eye
     // vector points into the screen.  The origin is at the center of the screen.
@@ -167,13 +162,6 @@ fn fs_main(vertex: VertexOutput) -> @location(0) vec4<f32> {
         cos(aperture_elevation)*sin(aperture_azimuth),
         sin(aperture_elevation),
         cos(aperture_elevation)*cos(aperture_azimuth),
-    );
-
-    // The constructor is column-major, but matrix-vector multiply acts on the rows.
-    let cam_aperture_to_world = mat3x3<f32>(
-        vec3<f32>(0, -1, 0),
-        vec3<f32>(0, 0, -1),
-        vec3<f32>(1, 0, 0),
     );
 
     let ray_global_origin = uniforms.cam_pos;
