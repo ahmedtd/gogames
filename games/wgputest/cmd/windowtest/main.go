@@ -20,6 +20,7 @@ import (
 	"github.com/barnex/fmath"
 	"github.com/gogpu/gogpu"
 	"github.com/gogpu/gogpu/gpu/types"
+	"github.com/gogpu/gogpu/input"
 	"github.com/gogpu/gputypes"
 	"github.com/gogpu/wgpu"
 
@@ -52,7 +53,13 @@ func run() error {
 			WithRequiredLimits(wgpu.LimitsWithMinimumAccelerationStructureValues(gputypes.DefaultLimits())),
 	)
 
-	var ex *Example
+	// TODO: WGPU state needs to be constructed on demand since the device
+	// context isn't valid until the first frame.
+	var ex *Renderer
+
+	app.OnUpdate(func(dt float64) {
+		ex.Update(ctx, app.Input())
+	})
 
 	app.OnDraw(func(dc *gogpu.Context) {
 
@@ -97,6 +104,55 @@ func run() error {
 	}
 
 	return nil
+}
+
+type WorldState struct {
+	Camera *WorldCamera
+}
+
+type WorldCamera struct {
+	WorldCenter fvec3.T
+
+	// Orthonormal transform from aperture space to world space.
+	//
+	// Aperture space is the screen space coordinate system.  The origin is at
+	// the center of the screen.  +x is to the right.  +y is down.  +z is into
+	// the screen.
+	//
+	// The matrix expresses a change of basis from aperture space to world
+	// space.  Column 1 is the aperture right vector, expressed in world
+	// coordinates.  Column 2 is the aperture down vector, expressed world
+	// coordinates.  Column 3 is the aperture eye vector, expressed in world
+	// coordinates.
+	ApertureToWorld fmat33.T
+
+	// The horizontal field-of-view, in degrees.  The vertical field of view is
+	// automatically computed from the viewport dimensions.
+	HorizontalFOV float32
+}
+
+func (c *WorldCamera) Right() fvec3.T {
+	return fvec3.T{
+		c.ApertureToWorld[0],
+		c.ApertureToWorld[3],
+		c.ApertureToWorld[6],
+	}
+}
+
+func (c *WorldCamera) Down() fvec3.T {
+	return fvec3.T{
+		c.ApertureToWorld[1],
+		c.ApertureToWorld[4],
+		c.ApertureToWorld[7],
+	}
+}
+
+func (c *WorldCamera) Eye() fvec3.T {
+	return fvec3.T{
+		c.ApertureToWorld[2],
+		c.ApertureToWorld[5],
+		c.ApertureToWorld[8],
+	}
 }
 
 // Uniforms corresponds to the Uniforms struct defined in the wgsl shader.
@@ -298,8 +354,10 @@ func loadScene(device *wgpu.Device, queue *wgpu.Queue) (*SceneComponents, error)
 	return uploadSceneComponents(device, queue, scene)
 }
 
-// Example holds the state the Rust Example struct holds.
-type Example struct {
+type Renderer struct {
+	PreviousWorldState *WorldState
+	LatestWorldState   *WorldState
+
 	uniforms        Uniforms
 	animationTime   float32
 	sceneComponents *SceneComponents
@@ -313,7 +371,7 @@ type Example struct {
 	pipelineLayout  *wgpu.PipelineLayout
 }
 
-func (ex *Example) Release() {
+func (ex *Renderer) Release() {
 	// Ordering is the reverse of the ordering in initExample
 	if ex.bindGroup != nil {
 		ex.bindGroup.Release()
@@ -341,10 +399,10 @@ func (ex *Example) Release() {
 	}
 }
 
-func initExample(ctx context.Context, format gputypes.TextureFormat, device *wgpu.Device, queue *wgpu.Queue) (returnExample *Example, returnErr error) {
+func initExample(ctx context.Context, format gputypes.TextureFormat, device *wgpu.Device, queue *wgpu.Queue) (returnExample *Renderer, returnErr error) {
 	const sideCount = 8
 
-	ex := &Example{}
+	ex := &Renderer{}
 
 	// If we aren't returning the example, we need to release everything that
 	// has been partially-constructed.
@@ -469,7 +527,18 @@ func initExample(ctx context.Context, format gputypes.TextureFormat, device *wgp
 	return ex, nil
 }
 
-func (ex *Example) render(ctx context.Context, width int, height int, view *wgpu.TextureView, device *wgpu.Device, queue *wgpu.Queue) error {
+func (r *Renderer) Update(ctx context.Context, inp *input.State) error {
+	camStep := float32(1.0 / 8.0)
+	if inp.Keyboard().Pressed(input.KeyW) {
+		r.LatestWorldState.Camera.WorldCenter = fvec3.AddVV(
+			r.PreviousWorldState.Camera.WorldCenter,
+			fvec3.MulVS(r.PreviousWorldState.Camera.Eye(), camStep),
+		)
+	}
+	return nil
+}
+
+func (ex *Renderer) render(ctx context.Context, width int, height int, view *wgpu.TextureView, device *wgpu.Device, queue *wgpu.Queue) error {
 	// scene update
 	{
 		const dist = 3.5
@@ -550,7 +619,7 @@ func (ex *Example) render(ctx context.Context, width int, height int, view *wgpu
 	return nil
 }
 
-func (ex *Example) uploadUniforms(ctx context.Context, device *wgpu.Device) (overallErr error) {
+func (ex *Renderer) uploadUniforms(ctx context.Context, device *wgpu.Device) (overallErr error) {
 	var err error
 
 	uniformBytes := ex.uniforms.bytes()
