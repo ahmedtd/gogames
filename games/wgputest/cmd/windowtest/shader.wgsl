@@ -211,7 +211,7 @@ fn fs_main(vertex: VertexOutput) -> @location(0) vec4<f32> {
     let material = geometry.material;
 
     let global_contact_point = ray_global_origin + intersection.t * ray_global_direction;
-    let global_normal : vec3<f32> = normalize(intersection.object_to_world * normal);
+    let global_normal : vec3<f32> = normalize(intersection.object_to_world * vec4<f32>(normal_raw, 0.0));
 
     var light_contribution = f32(0.0);
 

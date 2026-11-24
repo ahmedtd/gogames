@@ -23,8 +23,6 @@ import (
 	"github.com/gogpu/gogpu/input"
 	"github.com/gogpu/gputypes"
 	"github.com/gogpu/wgpu"
-
-	_ "github.com/gogpu/wgpu/hal/allbackends"
 )
 
 var (
@@ -49,8 +47,8 @@ func run() error {
 			WithSize(800, 600).
 			WithContinuousRender(true).
 			WithGraphicsAPI(types.GraphicsAPIVulkan).
-			WithRequiredFeatures(gputypes.Features(gputypes.FeatureRayQuery)).
-			WithRequiredLimits(wgpu.LimitsWithMinimumAccelerationStructureValues(gputypes.DefaultLimits())),
+			WithRequiredFeatures(gputypes.Features(gputypes.FeatureRayQuery)),
+		//WithRequiredLimits(wgpu.LimitsWithMinimumAccelerationStructureValues(gputypes.DefaultLimits())),
 	)
 
 	// TODO: WGPU state needs to be constructed on demand since the device
@@ -62,15 +60,8 @@ func run() error {
 	})
 
 	app.OnDraw(func(dc *gogpu.Context) {
-
-		provider := app.DeviceProvider()
-		if provider == nil {
-			slog.ErrorContext(ctx, "Error: app.DeviceProvider() is nil")
-			os.Exit(-1)
-		}
-
-		wgpuDevice := provider.Device()
-		wgpuQueue := provider.Queue()
+		wgpuDevice := wgpu.DeviceFromHandle(app.GPUContextProvider().Device())
+		wgpuQueue := wgpu.QueueFromHandle(app.GPUContextProvider().Queue())
 
 		// Check for raytracing support.
 		if !app.GPUContextProvider().Features().Contains(gputypes.FeatureRayQuery) {
@@ -82,7 +73,7 @@ func run() error {
 			var err error
 			ex, err = initExample(
 				ctx,
-				app.DeviceProvider().SurfaceFormat(),
+				app.GPUContextProvider().SurfaceFormat(),
 				wgpuDevice,
 				wgpuQueue,
 			)
@@ -276,12 +267,12 @@ func uploadSceneComponents(device *wgpu.Device, queue *wgpu.Queue, scene *RawSce
 	}
 
 	indexFormat := gputypes.IndexFormatUint32
-	sizeDescriptors := make([][]wgpu.BlasTriangleGeometrySizeDescriptor, 0, len(scene.instances))
+	sizeDescriptors := make([][]gputypes.BlasTriangleGeometrySizeDescriptor, 0, len(scene.instances))
 	for _, inst := range scene.instances {
-		sizeDesc := make([]wgpu.BlasTriangleGeometrySizeDescriptor, 0, inst.geometries.end-inst.geometries.start)
+		sizeDesc := make([]gputypes.BlasTriangleGeometrySizeDescriptor, 0, inst.geometries.end-inst.geometries.start)
 		for i := inst.geometries.start; i < inst.geometries.end; i++ {
 			indexCount := u32(scene.geometries[i].indices.end - scene.geometries[i].indices.start)
-			sizeDesc = append(sizeDesc, wgpu.BlasTriangleGeometrySizeDescriptor{
+			sizeDesc = append(sizeDesc, gputypes.BlasTriangleGeometrySizeDescriptor{
 				VertexFormat: gputypes.VertexFormatFloat32x3,
 				VertexCount:  u32(inst.vertices.end - inst.vertices.start),
 				IndexFormat:  &indexFormat,
@@ -291,11 +282,11 @@ func uploadSceneComponents(device *wgpu.Device, queue *wgpu.Queue, scene *RawSce
 		}
 
 		blas, err := device.CreateBlas(
-			&wgpu.CreateBlasDescriptor{
+			&gputypes.CreateBlasDescriptor{
 				Flags:      gputypes.ASFlagPreferFastTrace,
 				UpdateMode: gputypes.AccelerationStructureUpdateModeBuild,
 			},
-			wgpu.BlasGeometrySizeDescriptors{Triangles: sizeDesc},
+			gputypes.BlasGeometrySizeDescriptors{Triangles: sizeDesc},
 		)
 		if err != nil {
 			return fail("create BLAS", err)
@@ -434,7 +425,7 @@ func initExample(ctx context.Context, format gputypes.TextureFormat, device *wgp
 		return nil, fmt.Errorf("while uploading uniforms: %w", err)
 	}
 
-	ex.tlas, err = device.CreateTlas(&wgpu.CreateTlasDescriptor{
+	ex.tlas, err = device.CreateTlas(&gputypes.CreateTlasDescriptor{
 		Flags:        gputypes.ASFlagPreferFastTrace,
 		UpdateMode:   gputypes.AccelerationStructureUpdateModeBuild,
 		MaxInstances: sideCount * sideCount,
